@@ -446,6 +446,8 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 .tl-dot.supplement{background:#8E5BA8}
 .tl-dot.sanitation{background:#5B7C99}
 .tl-dot.inspection{background:#0E8C82}
+.tl-dot-task{background:var(--fc-gold);color:var(--fc-red-dk)}
+.tl-task-pill{display:inline-block;margin-left:8px;background:var(--fc-gold);color:var(--fc-red-dk);font-size:10px;font-weight:800;padding:1px 7px;border-radius:9px;letter-spacing:.03em;vertical-align:1px;text-transform:uppercase}
 /* Inspection detail block — sits between line2 and any override block.
    Ready badge (green) vs Not-ready badge (red) is the headline. Below it,
    chip-style spans summarize the observation categories. */
@@ -6256,6 +6258,13 @@ const I18N = {
       woTaskSupplement:'Foliar / Nutrient',woTaskScout:'Scout / Inspect',woTaskHarvest:'Harvest',
       woTaskCultivate:'Repair',woTaskSidedress:'Fertilize',woTaskOther:'Other',
       woCoverageLabel:'Where on the field',
+      woIrrigWetTitle:'Marks this block WET',
+      woIrrigWetBody:'No heavy equipment or spray rigs until it dries.',
+      woIrrigTypeLabel:'Irrigation type',
+      woIrrigDaysLabel:'Days to dry / re-entry',
+      woIrrigDaysHelp:'Block stays restricted this many days (2 days + irrigation day = 3).',
+      irrigFlood:'Flood',irrigDrip:'Drip',irrigMicro:'Micro-sprinkler',irrigSprinkler:'Sprinkler',irrigFurrow:'Furrow',
+      tlTaskAssigned:'Task assigned',daysWord:'days',
       woCrewLabel:'Crew size',woAssigneeLabel:'Assign to',woAssigneePlaceholder:'e.g. Miguel, Crew A',
       woNotesLabel:'Notes for the crew',woNotesPlaceholder:'Anything they need to know…',
       // Two-step task flow (M&R-style): save as pending vs send to worker now
@@ -6869,6 +6878,13 @@ const I18N = {
       woTaskSupplement:'Foliar / Nutriente',woTaskScout:'Explorar / Inspeccionar',woTaskHarvest:'Cosechar',
       woTaskCultivate:'Reparar',woTaskSidedress:'Fertilizar',woTaskOther:'Otro',
       woCoverageLabel:'Dónde en el campo',
+      woIrrigWetTitle:'Marca este bloque MOJADO',
+      woIrrigWetBody:'Sin equipo pesado ni fumigadoras hasta que seque.',
+      woIrrigTypeLabel:'Tipo de riego',
+      woIrrigDaysLabel:'Días para secar / reingreso',
+      woIrrigDaysHelp:'El bloque queda restringido estos días (2 días + el día de riego = 3).',
+      irrigFlood:'Inundación',irrigDrip:'Goteo',irrigMicro:'Micro-aspersor',irrigSprinkler:'Aspersor',irrigFurrow:'Surco',
+      tlTaskAssigned:'Tarea asignada',daysWord:'días',
       woCrewLabel:'Tamaño cuadrilla',woAssigneeLabel:'Asignar a',woAssigneePlaceholder:'p.ej. Miguel, Cuadrilla A',
       woNotesLabel:'Notas para la cuadrilla',woNotesPlaceholder:'Lo que necesiten saber…',
       // Flujo de dos pasos (estilo M&R)
@@ -9274,6 +9290,23 @@ function onLogChemicalChange(){
   if(phiEl && phi != null) phiEl.value = phi;
 }
 
+/* Same auto-fill behavior for the Work Order modal's spray section. */
+function onWoChemicalChange(){
+  const sel = document.getElementById('wo-chemical');
+  if(!sel) return;
+  const customEl = document.getElementById('wo-chemical-custom');
+  const reiEl = document.getElementById('wo-rei');
+  const phiEl = document.getElementById('wo-phi');
+  const opt = sel.options[sel.selectedIndex];
+  const isCustom = sel.value === 'Other / Custom';
+  if(customEl) customEl.style.display = isCustom ? 'block' : 'none';
+  if(!sel.value || isCustom) return;
+  const rei = opt ? opt.getAttribute('data-rei') : null;
+  const phi = opt ? opt.getAttribute('data-phi') : null;
+  if(reiEl && rei != null) reiEl.value = rei;
+  if(phiEl && phi != null) phiEl.value = phi;
+}
+
 const ACT_TYPES = [
   /* citrus activity types — sourced from M&R Farm Management citrus vocabulary.
      NOTE: the `id` values are kept stable because reports, the playbook/compare
@@ -10595,13 +10628,46 @@ function renderDetail(id){
       `</div>`+
     `</div>`;
 
-  /* activity timeline */
+  /* activity timeline — merges logged activities with assigned tasks so a
+     newly-assigned task shows on the field immediately (like M&R), not only
+     in the separate Upcoming card. Assigned tasks render as lightweight
+     "task" rows; logged activities keep their full rendering below. */
+  const openAssigned = (f.assignedTasks || [])
+    .filter(tk => tk.status === 'scheduled' || tk.status === 'overdue' || tk.status === 'sent')
+    .map(tk => ({ _kind:'task', _tk:tk, performedAt: tk.assignedAt || tk.scheduledFor || new Date().toISOString() }));
+  const actItems = acts.map(a => ({ _kind:'act', _a:a, performedAt: a.performedAt }));
+  const merged = [...actItems, ...openAssigned].sort((x,y)=> new Date(y.performedAt)-new Date(x.performedAt));
+
   let tlHtml = '';
-  if(acts.length === 0){
+  if(merged.length === 0){
     tlHtml = `<div class="tl-empty">${t('noActivity')}</div>`;
   } else {
-    const sorted = [...acts].sort((a,b)=> new Date(b.performedAt)-new Date(a.performedAt));
-    tlHtml = '<div class="timeline">' + sorted.map(a => {
+    tlHtml = '<div class="timeline">' + merged.map(item => {
+      // ── Assigned-task row ──
+      if(item._kind === 'task'){
+        const tk = item._tk;
+        const date = new Date(item.performedAt);
+        const dateStr = date.toLocaleString(lang==='es'?'es':'en', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+        const taskTxt = (tk.tasks || []).join(', ');
+        const sched = tk.scheduledFor ? ` · ${relativeDateLabel(tk.scheduledFor)}` : '';
+        const detailBits = [];
+        if(tk.supplementProduct) detailBits.push(escapeHtml(tk.supplementProduct));
+        if(tk.reiHours) detailBits.push(`REI ${tk.reiHours}h`);
+        if(tk.phiDays) detailBits.push(`PHI ${tk.phiDays}d`);
+        if(tk.irrigType) detailBits.push(escapeHtml(tk.irrigType));
+        if(tk.dryDays) detailBits.push(`${tk.dryDays} ${t('daysWord')}`);
+        const detail = detailBits.length ? ` — ${detailBits.join(' · ')}` : '';
+        const statusPill = `<span class="tl-task-pill">${t('tlTaskAssigned')}</span>`;
+        return `<div class="tl-item tl-item-task">`+
+          `<div class="tl-dot tl-dot-task">📋</div>`+
+          `<div class="tl-body">`+
+            `<div class="tl-line1">${escapeHtml(taskTxt)}${statusPill}</div>`+
+            `<div class="tl-line2">${dateStr}${sched}${detail}</div>`+
+          `</div>`+
+        `</div>`;
+      }
+      // ── Logged-activity row (original rendering) ──
+      const a = item._a;
       const date = new Date(a.performedAt);
       const dateStr = date.toLocaleString(lang==='es'?'es':'en', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
       const cov = a.coverage && a.coverage !== 'full' ? `<span class="tl-cov">${a.coverage}</span>` : '';
@@ -17511,12 +17577,6 @@ function openWorkOrderModal(fieldId){
   const f = FIELDS[fieldId]; if(!f) return;
   _woState = {tasks:new Set(), coverage:'full', crew:1, assignee:'', notes:''};
 
-  const coverageOpts = [
-    {id:'full', lbl:t('covFull')},
-    ...(f.halfSplit==='NS' ? [{id:'N/2', lbl:t('covN')},{id:'S/2', lbl:t('covS')}] : []),
-    ...(f.halfSplit==='EW' ? [{id:'E/2', lbl:t('covE')},{id:'W/2', lbl:t('covW')}] : [])
-  ];
-
   document.getElementById('modal-wo-body').innerHTML =
     `<div class="modal-title">${t('woTitle')}</div>`+
     `<div class="modal-sub">${f.displayId} · ${t('woSub')}</div>`+
@@ -17528,18 +17588,41 @@ function openWorkOrderModal(fieldId){
       `</div>`+
     `</div>`+
 
-    `<div class="form-row">`+
-      `<div class="form-label">${t('woCoverageLabel')}</div>`+
-      `<div class="chip-row" id="wo-coverage">`+
-        coverageOpts.map(o => `<button class="chip coverage${o.id===_woState.coverage?' selected':''}" data-cov="${o.id}">${o.lbl}</button>`).join('')+
+    /* ── IRRIGATION section — shown when 'irrigate' is selected. Assigning an
+       irrigation marks the field WET on assign (like M&R) and sets the dry /
+       re-entry window. Citrus default is 2 days + the irrigation day = 3 days
+       total. The field shows restricted (no heavy equipment / spray rigs)
+       through that window via the app's REI mechanism. */
+    `<div class="form-row" id="wo-irrigation" style="display:none">`+
+      `<div class="wo-wet-warn">💧 <strong>${t('woIrrigWetTitle')}</strong> · ${t('woIrrigWetBody')}</div>`+
+      `<div class="form-label" style="margin-top:10px">${t('woIrrigTypeLabel')}</div>`+
+      `<select class="text-input" id="wo-irrig-type" style="width:100%">`+
+        `<option value="Flood">${t('irrigFlood')}</option>`+
+        `<option value="Drip">${t('irrigDrip')}</option>`+
+        `<option value="Micro-sprinkler">${t('irrigMicro')}</option>`+
+        `<option value="Sprinkler">${t('irrigSprinkler')}</option>`+
+        `<option value="Furrow">${t('irrigFurrow')}</option>`+
+      `</select>`+
+      `<div class="field-pair" style="margin-top:10px">`+
+        `<div>`+
+          `<div class="form-label">${t('woIrrigDaysLabel')}</div>`+
+          `<input type="number" class="text-input" id="wo-dry-days" min="1" max="14" step="1" value="3">`+
+          `<div style="font-size:10.5px;color:var(--tx4);margin-top:4px;line-height:1.4">${t('woIrrigDaysHelp')}</div>`+
+        `</div>`+
+        `<div></div>`+
       `</div>`+
     `</div>`+
 
-    /* REI / PHI inputs — shown only when 'spray' is in the selected tasks.
-       Manager fills these in from the PCA recommendation at assign time so
-       the restrictions can be auto-applied when the worker checks out and
-       marks the spray complete. */
+    /* REI / PHI inputs + citrus chemical picker — shown only when 'spray' is in
+       the selected tasks. Selecting a chemical auto-fills REI/PHI from the
+       CHEMICALS table (matches the Log Activity flow and M&R). */
     `<div class="form-row" id="wo-restrictions" style="display:none">`+
+      `<div class="form-label">${t('chemicalLabel')}</div>`+
+      `<select class="text-input" id="wo-chemical" onchange="onWoChemicalChange()" style="width:100%;margin-bottom:10px">`+
+        `<option value="">${t('chemicalSelect')}</option>`+
+        CHEMICALS.map(c => `<option value="${c.name.replace(/"/g,'&quot;')}" data-rei="${c.rei}" data-phi="${c.phi}">${c.name}${c.rei>0?` (${c.rei}h REI${c.phi>0?`, ${c.phi}d PHI`:''})`:''}</option>`).join('')+
+      `</select>`+
+      `<input type="text" class="text-input" id="wo-chemical-custom" placeholder="${t('chemicalCustomPlaceholder')}" style="display:none;width:100%;margin-bottom:10px">`+
       `<div class="field-pair">`+
         `<div>`+
           `<div class="form-label">${t('reiLabel')}</div>`+
@@ -17624,8 +17707,10 @@ function openWorkOrderModal(fieldId){
   function refreshWoConditionalSections(){
     const restRow = document.getElementById('wo-restrictions');
     const suppRow = document.getElementById('wo-supplement');
+    const irrigRow = document.getElementById('wo-irrigation');
     if(restRow) restRow.style.display = _woState.tasks.has('spray') ? '' : 'none';
     if(suppRow) suppRow.style.display = _woState.tasks.has('supplement') ? '' : 'none';
+    if(irrigRow) irrigRow.style.display = _woState.tasks.has('irrigate') ? '' : 'none';
   }
   document.querySelectorAll('#wo-tasks .task-row').forEach(r=>{
     r.onclick = ()=>{
@@ -17636,12 +17721,6 @@ function openWorkOrderModal(fieldId){
     };
   });
   refreshWoConditionalSections();
-  document.querySelectorAll('#wo-coverage .chip').forEach(c=>{
-    c.onclick = ()=>{
-      _woState.coverage = c.dataset.cov;
-      document.querySelectorAll('#wo-coverage .chip').forEach(x=>x.classList.toggle('selected', x===c));
-    };
-  });
 
   // Date picker + quick "Today / Tomorrow" chips + dynamic send label
   function refreshWoSendLabel(){
@@ -17811,24 +17890,57 @@ function saveAssignedTaskOnly(fieldId){
 
 function commitAssignedTask(fieldId, taskList, notes, pickedDate, overrideRecord){
   const taskId = 'wo_' + Date.now();
-  // Capture REI/PHI when a spray task is in the mix — applied to the field
-  // when the worker checks out and confirms the spray was done.
+  const f = FIELDS[fieldId];
+  // Capture REI/PHI + chemical when a spray task is in the mix.
   const isSpray = _woState.tasks.has('spray');
   const reiEl = document.getElementById('wo-rei');
   const phiEl = document.getElementById('wo-phi');
   const reiHours = (isSpray && reiEl && reiEl.value) ? parseInt(reiEl.value) : null;
   const phiDays  = (isSpray && phiEl && phiEl.value) ? parseInt(phiEl.value) : null;
-  // Capture supplement product + rate when a supplement task is in the mix —
-  // carried to the WhatsApp message and the checkout activity for traceability.
+  // Chemical material — stored on supplementProduct so the timeline renders it.
+  let chemName = null;
+  if(isSpray){
+    const chemSel = document.getElementById('wo-chemical');
+    chemName = chemSel ? (chemSel.value || '').trim() : '';
+    if(chemName === 'Other / Custom'){
+      const customEl = document.getElementById('wo-chemical-custom');
+      chemName = customEl ? (customEl.value || '').trim() : '';
+    }
+    if(!chemName) chemName = null;
+  }
+  // Capture supplement product + rate when a supplement task is in the mix.
   const isSupplement = _woState.tasks.has('supplement');
   const suppProdEl = document.getElementById('wo-supp-product');
   const suppRateEl = document.getElementById('wo-supp-rate');
-  const supplementProduct = (isSupplement && suppProdEl && suppProdEl.value) ? suppProdEl.value.trim() : null;
+  const supplementProduct = (isSupplement && suppProdEl && suppProdEl.value) ? suppProdEl.value.trim() : (isSpray ? chemName : null);
   const supplementRate    = (isSupplement && suppRateEl && suppRateEl.value) ? suppRateEl.value.trim() : null;
+
+  // ── IRRIGATION: mark the field WET on assign (like M&R) and set the
+  //    dry / re-entry window. Citrus default = 2 days + irrigation day = 3.
+  const isIrrig = _woState.tasks.has('irrigate');
+  let irrigType = null, dryDays = null;
+  if(isIrrig && f){
+    const typeEl = document.getElementById('wo-irrig-type');
+    const daysEl = document.getElementById('wo-dry-days');
+    irrigType = typeEl ? typeEl.value : null;
+    dryDays = (daysEl && daysEl.value) ? parseInt(daysEl.value) : 3;
+    if(!dryDays || dryDays < 1) dryDays = 3;
+    // Reference time = scheduled irrigation date at noon (or now if today).
+    const todayStr = new Date().toISOString().slice(0,10);
+    const refIso = (pickedDate && pickedDate !== todayStr)
+      ? new Date(pickedDate + 'T12:00:00').toISOString()
+      : new Date().toISOString();
+    f.lastIrrigationAt = refIso;
+    // Mark restricted for the dry-down window (days → hours) using the app's
+    // own REI mechanism, so the block reads WET/restricted everywhere.
+    applyREI(fieldId, dryDays * 24, refIso);
+    db.saveField(fieldId);
+  }
+
   const taskRecord = {
     id: taskId,
     tasks: taskList,
-    coverage: _woState.coverage,
+    coverage: 'full',
     crewSize: null,             // not assigned yet
     assignedTo: null,           // not assigned yet
     assignedAt: new Date().toISOString(),
@@ -17839,8 +17951,10 @@ function commitAssignedTask(fieldId, taskList, notes, pickedDate, overrideRecord
     notes: notes,
     reiHours: reiHours,         // null unless spray + value entered
     phiDays:  phiDays,
-    supplementProduct: supplementProduct,   // null unless supplement + value
+    supplementProduct: supplementProduct,   // chemical (spray) or product (supplement)
     supplementRate:    supplementRate,
+    irrigType: irrigType,       // null unless irrigate
+    dryDays:   dryDays,         // null unless irrigate
     completedAt: null,
     cancelledAt: null,
     builtMessage: ''            // built fresh when sent later
@@ -17875,17 +17989,46 @@ function commitWorkOrder(fieldId, mode, overrideRecord){
   const phiEl = document.getElementById('wo-phi');
   const reiHours = (isSpray && reiEl && reiEl.value) ? parseInt(reiEl.value) : null;
   const phiDays  = (isSpray && phiEl && phiEl.value) ? parseInt(phiEl.value) : null;
+  // Chemical material for spray (stored on supplementProduct for the timeline).
+  let chemName = null;
+  if(isSpray){
+    const chemSel = document.getElementById('wo-chemical');
+    chemName = chemSel ? (chemSel.value || '').trim() : '';
+    if(chemName === 'Other / Custom'){
+      const customEl = document.getElementById('wo-chemical-custom');
+      chemName = customEl ? (customEl.value || '').trim() : '';
+    }
+    if(!chemName) chemName = null;
+  }
   // Same for supplement product + rate
   const isSupplement = _woState.tasks.has('supplement');
   const suppProdEl = document.getElementById('wo-supp-product');
   const suppRateEl = document.getElementById('wo-supp-rate');
-  const supplementProduct = (isSupplement && suppProdEl && suppProdEl.value) ? suppProdEl.value.trim() : null;
+  const supplementProduct = (isSupplement && suppProdEl && suppProdEl.value) ? suppProdEl.value.trim() : (isSpray ? chemName : null);
   const supplementRate    = (isSupplement && suppRateEl && suppRateEl.value) ? suppRateEl.value.trim() : null;
+
+  // ── IRRIGATION: mark the field WET on assign + set the dry/re-entry window.
+  const isIrrig = _woState.tasks.has('irrigate');
+  const fIrr = FIELDS[fieldId];
+  let irrigType = null, dryDays = null;
+  if(isIrrig && fIrr){
+    const typeEl = document.getElementById('wo-irrig-type');
+    const daysEl = document.getElementById('wo-dry-days');
+    irrigType = typeEl ? typeEl.value : null;
+    dryDays = (daysEl && daysEl.value) ? parseInt(daysEl.value) : 3;
+    if(!dryDays || dryDays < 1) dryDays = 3;
+    const refIso = (pickedDate && pickedDate !== todayStr)
+      ? new Date(pickedDate + 'T12:00:00').toISOString()
+      : new Date().toISOString();
+    fIrr.lastIrrigationAt = refIso;
+    applyREI(fieldId, dryDays * 24, refIso);
+    db.saveField(fieldId);
+  }
 
   const taskRecord = {
     id: taskId,
     tasks: taskList,
-    coverage: _woState.coverage,
+    coverage: 'full',
     crewSize: crew,
     assignedTo: assignee || null,
     assignedAt: new Date().toISOString(),
@@ -17898,6 +18041,8 @@ function commitWorkOrder(fieldId, mode, overrideRecord){
     phiDays:  phiDays,
     supplementProduct: supplementProduct,
     supplementRate:    supplementRate,
+    irrigType: irrigType,
+    dryDays:   dryDays,
     completedAt: null,
     cancelledAt: null,
     builtMessage: msg
