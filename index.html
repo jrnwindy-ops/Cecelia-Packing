@@ -1779,6 +1779,13 @@ body.has-sync-bar .help-fab{bottom:64px}
   <div class="modal-body" id="modal-issue-resolve-body"></div>
 </div>
 
+<!-- DISMISS ALL REMINDERS MODAL -->
+<div class="modal-backdrop" id="modal-backdrop-dismissall" style="z-index:1500"></div>
+<div class="modal" id="modal-dismissall" style="z-index:1600">
+  <div class="modal-handle"></div>
+  <div class="modal-body" id="modal-dismissall-body"></div>
+</div>
+
 <!-- LOT STATUS CHANGE MODAL -->
 <div class="modal" id="modal-lot-status">
   <div class="modal-handle"></div>
@@ -6636,7 +6643,7 @@ const I18N = {
       palletPickLot:'Which lot is on this pallet?',
       palletNoLots:'No lots exist yet. Log a harvest first.',
       palletDetails:'Pallet detail',
-      palletCartons:'Cartons on pallet',
+      palletCartons:'Count on pallet',
       palletCartonsPlaceholder:'e.g. 60',
       palletAssignedBy:'Assigned by',
       palletAssignedByPlaceholder:'crew boss',
@@ -6644,7 +6651,7 @@ const I18N = {
       palletNeedLot:'Pick a lot before saving.',
       palletAssigned:'Pallet {0} assigned to lot {1}',
       palletOnLotShort:'on lot',
-      palletCartonsShort:'ctns',
+      palletCartonsShort:'units',
       palletPalletsShort:'pallets',
       scanTitle:'Scan QR',
       scanSub:'Hold steady over the code',
@@ -6712,7 +6719,7 @@ const I18N = {
       wrMinAgo:'min ago',
       wrHrAgo:'hr ago',
       wrAcresActive:'Acres active',
-      wrCartonsToday:'Cartons today',
+      wrCartonsToday:'Units today',
       wrTrucksInbound:'Trucks inbound',
       wrLegCrew:'Crew on site',
       wrLegHarvest:'Harvest-ready',
@@ -6737,34 +6744,34 @@ const I18N = {
       wrNoCrews:'No crews checked in.',
       wrNoRestrict:'No active restrictions.',
       wrNoHarvest:'No blocks harvest-ready.',
-      /* Pack styles & lot management */
+      /* Container types & lot management (citrus: delivered in bins, packed at packing house) */
       done:'Done',
-      packAddStyle:'Add style',
-      palletPackStyleHint:'Each pack style is its own lot number. Pick the lot that matches what you packed.',
-      palletNewLotCta:'New lot (marketing number)',
+      packAddStyle:'Add container',
+      palletPackStyleHint:'Each container type is its own lot number. Pick the lot that matches what was delivered.',
+      palletNewLotCta:'New lot',
       palletNewLotTitle:'Register a new lot',
       palletNewLotNumber:'Lot number',
-      palletNewLotNumberPlaceholder:'marketing-issued lot #',
+      palletNewLotNumberPlaceholder:'lot #',
       palletNewLotBlock:'Block',
-      palletNewLotPackStyle:'Pack style',
-      palletCustomStyleLabel:'Custom pack style name',
-      palletCustomStylePlaceholder:'e.g. Jumbo / Bulk bin',
+      palletNewLotPackStyle:'Container',
+      palletCustomStyleLabel:'Custom container name',
+      palletCustomStylePlaceholder:'e.g. Half-bin / Sample',
       palletNewLotCreate:'Create lot',
       palletNewLotCreated:'Lot {0} created',
       palletNewLotNeedId:'Enter the lot number.',
       palletNewLotNeedBlock:'Pick a block.',
-      palletNewLotNeedStyle:'Pick a pack style.',
+      palletNewLotNeedStyle:'Pick a container type.',
       palletNewLotDup:'Lot {0} already exists.',
       lotMgmtCta:'Manage lot numbers',
       lotMgmtTitle:'Lot numbers',
-      lotMgmtSub:'Register marketing-issued lot numbers ahead of harvest — one per pack style, tagged to a block.',
+      lotMgmtSub:'Register lot numbers ahead of harvest — one per container type, tagged to a block.',
       lotMgmtRegister:'Register a lot',
       lotMgmtAddBtn:'Add lot number',
       lotMgmtExisting:'Registered lots',
       lotMgmtNone:'No lots registered yet.',
-      lotSelectHint:'Select which lots this harvest covers. Tap “Add a lot” to register a new marketing lot number.',
-      lotNewPromptId:'New lot number (issued by marketing):',
-      lotNewPromptStyle:'Pack style for this lot? ({0})',
+      lotSelectHint:'Select which lots this harvest covers. Tap “Add a lot” to register a new lot number.',
+      lotNewPromptId:'New lot number:',
+      lotNewPromptStyle:'Container type for this lot? ({0})',
       loadArrived:'Arriving',
       loadMinAway:'min away',
       propEmps:'Direct employees',propEmpsSub:'Irrigators, sprayers, supervisors — named individuals',
@@ -7237,7 +7244,7 @@ const I18N = {
       palletPickLot:'¿Qué lote va en esta tarima?',
       palletNoLots:'Aún no existen lotes. Registre una cosecha primero.',
       palletDetails:'Detalle de tarima',
-      palletCartons:'Cajas en la tarima',
+      palletCartons:'Cantidad en la tarima',
       palletCartonsPlaceholder:'ej. 60',
       palletAssignedBy:'Asignado por',
       palletAssignedByPlaceholder:'mayordomo',
@@ -7245,7 +7252,7 @@ const I18N = {
       palletNeedLot:'Elija un lote antes de guardar.',
       palletAssigned:'Tarima {0} asignada al lote {1}',
       palletOnLotShort:'en lote',
-      palletCartonsShort:'cajas',
+      palletCartonsShort:'unid',
       palletPalletsShort:'tarimas',
       scanTitle:'Escanear QR',
       scanSub:'Mantenga firme sobre el código',
@@ -7313,7 +7320,7 @@ const I18N = {
       wrMinAgo:'min',
       wrHrAgo:'h',
       wrAcresActive:'Acres activos',
-      wrCartonsToday:'Cajas hoy',
+      wrCartonsToday:'Unidades hoy',
       wrTrucksInbound:'Camiones en camino',
       wrLegCrew:'Cuadrilla en campo',
       wrLegHarvest:'Listo cosecha',
@@ -7340,32 +7347,32 @@ const I18N = {
       wrNoHarvest:'Ningún bloque listo para cosecha.',
       /* Estilos de empaque y gestión de lotes */
       done:'Listo',
-      packAddStyle:'Agregar estilo',
-      palletPackStyleHint:'Cada estilo de empaque es su propio número de lote. Elija el lote que coincide con lo que empacó.',
-      palletNewLotCta:'Nuevo lote (número de marketing)',
+      packAddStyle:'Agregar contenedor',
+      palletPackStyleHint:'Cada tipo de contenedor es su propio número de lote. Elija el lote que coincide con lo que se entregó.',
+      palletNewLotCta:'Nuevo lote',
       palletNewLotTitle:'Registrar un nuevo lote',
       palletNewLotNumber:'Número de lote',
-      palletNewLotNumberPlaceholder:'lote # emitido por marketing',
+      palletNewLotNumberPlaceholder:'lote #',
       palletNewLotBlock:'Bloque',
-      palletNewLotPackStyle:'Estilo de empaque',
-      palletCustomStyleLabel:'Nombre de estilo personalizado',
-      palletCustomStylePlaceholder:'ej. Jumbo / Caja a granel',
+      palletNewLotPackStyle:'Contenedor',
+      palletCustomStyleLabel:'Nombre de contenedor personalizado',
+      palletCustomStylePlaceholder:'ej. Medio bin / Muestra',
       palletNewLotCreate:'Crear lote',
       palletNewLotCreated:'Lote {0} creado',
       palletNewLotNeedId:'Ingrese el número de lote.',
       palletNewLotNeedBlock:'Elija un bloque.',
-      palletNewLotNeedStyle:'Elija un estilo de empaque.',
+      palletNewLotNeedStyle:'Elija un tipo de contenedor.',
       palletNewLotDup:'El lote {0} ya existe.',
       lotMgmtCta:'Gestionar números de lote',
       lotMgmtTitle:'Números de lote',
-      lotMgmtSub:'Registre los números de lote de marketing antes de la cosecha — uno por estilo de empaque, asignado a un bloque.',
+      lotMgmtSub:'Registre los números de lote antes de la cosecha — uno por tipo de contenedor, asignado a un bloque.',
       lotMgmtRegister:'Registrar un lote',
       lotMgmtAddBtn:'Agregar número de lote',
       lotMgmtExisting:'Lotes registrados',
       lotMgmtNone:'Aún no hay lotes registrados.',
-      lotSelectHint:'Seleccione qué lotes cubre esta cosecha. Toque “Agregar un lote” para registrar un nuevo número de marketing.',
-      lotNewPromptId:'Nuevo número de lote (emitido por marketing):',
-      lotNewPromptStyle:'¿Estilo de empaque para este lote? ({0})',
+      lotSelectHint:'Seleccione qué lotes cubre esta cosecha. Toque “Agregar un lote” para registrar un nuevo número de lote.',
+      lotNewPromptId:'Nuevo número de lote:',
+      lotNewPromptStyle:'¿Tipo de contenedor para este lote? ({0})',
       loadArrived:'Llegando',
       loadMinAway:'min',
       propEmps:'Empleados directos',propEmpsSub:'Regadores, aspersores, supervisores — individuos nombrados',
@@ -9838,6 +9845,72 @@ function unsnoozeReminder(ruleId, subjectId){
   _remSnoozes.delete(key);
   db.deleteReminderSnooze(key);
   rebuildReminders();
+}
+
+/* Snooze every currently-active reminder in one action. Used by the
+   "Dismiss all" button — handy right after first setup when the empty
+   database makes the rules engine flag all missing paperwork at once.
+   Each reminder is snoozed (not deleted), so as Cecelia uploads the real
+   documents the underlying reminders resolve permanently; anything still
+   missing simply reappears after `days`. Returns the count snoozed. */
+function snoozeAllActive(days, reason){
+  const items = (ACTIVE_REMINDERS || []).slice();
+  if(items.length === 0) return 0;
+  const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  const by = 'Manager';
+  items.forEach(r => {
+    const subjectId = r.subjectId || null;
+    const key = remSnoozeKey(r.ruleId, subjectId);
+    const entry = { until, at: new Date().toISOString(), by, reason: reason || 'snooze' };
+    _remSnoozes.set(key, entry);
+    db.saveReminderSnooze({
+      id: key, ruleId: r.ruleId, subjectId,
+      snoozedUntil: until, snoozedBy: by, reason: entry.reason
+    });
+  });
+  rebuildReminders();
+  return items.length;
+}
+
+/* Bottom-sheet that lets the user clear every active reminder at once,
+   choosing how long to hide them. Snooze (not delete) so the compliance
+   tracking survives — anything still genuinely missing reappears after the
+   chosen window, and reminders for documents that get uploaded in the
+   meantime resolve on their own. */
+function openDismissAllModal(){
+  const count = (ACTIVE_REMINDERS || []).length;
+  if(count === 0){ flash(t('remEmpty')); return; }
+  const body = document.getElementById('modal-dismissall-body');
+  const backdrop = document.getElementById('modal-backdrop-dismissall');
+  const modal = document.getElementById('modal-dismissall');
+  if(!body || !modal) return;
+  const opt = (days, labelKey) =>
+    `<button class="big-btn big-btn-quaternary dismissall-opt" data-days="${days}" style="width:100%;margin-bottom:10px;justify-content:space-between;display:flex;align-items:center">`+
+      `<span>${t(labelKey)}</span><span style="opacity:.6;font-size:12px">${days} ${t('daysWord')}</span>`+
+    `</button>`;
+  body.innerHTML =
+    `<h2 style="font-family:'Playfair Display',serif;font-size:21px;color:var(--tx);margin-bottom:6px">${t('remDismissAllTitle')}</h2>`+
+    `<div style="font-size:13.5px;color:var(--tx3);line-height:1.5;margin-bottom:8px">${t('remDismissAllBody').replace('{0}', count)}</div>`+
+    `<div style="font-size:12px;color:var(--tx4);line-height:1.5;margin-bottom:18px">${t('remDismissAllNote')}</div>`+
+    opt(30, 'remDismissAll30')+
+    opt(90, 'remDismissAll90')+
+    `<button class="big-btn" id="dismissall-cancel" style="width:100%;background:transparent;color:var(--tx3);border:1.5px solid var(--bd);margin-top:4px">${t('cancelWord')}</button>`;
+  backdrop.classList.add('open');
+  modal.classList.add('open');
+  const close = () => { backdrop.classList.remove('open'); modal.classList.remove('open'); };
+  backdrop.onclick = close;
+  const cancel = document.getElementById('dismissall-cancel');
+  if(cancel) cancel.onclick = close;
+  body.querySelectorAll('.dismissall-opt').forEach(b => {
+    b.onclick = () => {
+      const days = parseInt(b.dataset.days, 10) || 30;
+      const n = snoozeAllActive(days, 'dismiss');
+      close();
+      flash(t('remDismissAllFlash').replace('{0}', n).replace('{1}', days));
+      renderRemindersView();
+      refreshReminderBadge();
+    };
+  });
 }
 
 /* All currently-snoozed reminders (active snooze + the rule context). Used by
@@ -13315,6 +13388,7 @@ function renderRemindersView(){
           `<div style="font-size:13px;color:var(--tx3);line-height:1.5">${t('remSub')}</div>`+
         `</div>`+
         `<div style="display:flex;gap:7px;flex-wrap:wrap">`+
+          `<button class="rem-tile-act-secondary" id="rem-dismiss-all" style="white-space:nowrap;background:var(--fc-gold);color:var(--fc-red-dk);border-color:var(--fc-gold);font-weight:700">🧹 ${t('remDismissAll')}</button>`+
           `<button class="rem-tile-act-secondary" id="rem-print-checklist" style="white-space:nowrap">🖨 Print checklist</button>`+
           `<button class="rem-tile-act-secondary" id="rem-run-recall" style="white-space:nowrap;background:var(--st-blocked-bg);color:var(--st-blocked);border-color:var(--st-blocked)">🧪 Run recall test</button>`+
             `<button class="rem-tile-act-secondary" id="rem-whats-new" style="white-space:nowrap">📄 What's new</button>`+
@@ -13329,6 +13403,8 @@ function renderRemindersView(){
   if(wn) wn.onclick = generateUpdateReferencePdf;
   const rr = document.getElementById('rem-run-recall');
   if(rr) rr.onclick = openMockRecallTest;
+  const da = document.getElementById('rem-dismiss-all');
+  if(da) da.onclick = () => openDismissAllModal();
 
   /* Snoozed-section toggle */
   const snHead = document.getElementById('rem-snoozed-head');
@@ -16307,7 +16383,7 @@ const HELP_TOPICS = [
            'Open the 🚚 Loads screen. The flow goes pallet → load → manifest, and every box traces back to its block.',
            ['Buy rolls of pre-printed QR stickers — they carry only their own code; the meaning lives in AgCommand.',
             'A crew boss peels a sticker onto a full pallet, taps "Scan a pallet sticker," scans it, and assigns it to a lot with a carton count. An unknown sticker registers itself on first scan.',
-            'Pack styles: each pack style (Grade 1, Grade 2, Custom) is its own lot number. Pick the lot that matches what you packed — or tap "New lot" to register a marketing-issued number on the spot. The office can pre-register them under "Manage lot numbers."',
+            'Container types: each type (Bins, Totes, Juice, Custom) is its own lot number. Pick the lot that matches what was delivered — or tap "New lot" to register a number on the spot. The office can pre-register them under "Manage lot numbers."',
             'When the truck is loaded, tap "Build a load." Scan or pick the pallets on board, then enter the carrier, driver, destination, ship date, and a manual ETA.',
             'Choose per shipment: bind the load by BOL number, or scan a pre-printed BOL sticker.',
             'Tap "Manifest" to download the PDF — every pallet rolls up to its lot, block, crew, and harvest date.'],
@@ -16365,16 +16441,16 @@ const WHATS_NEW = [
     date: '2026-06-22',
     icon: '🏷',
     en: {
-      title: 'Pack styles on pallets & lots',
+      title: 'Container types on lots & loads',
       body: [
-        'Marketing issues a separate lot number for each pack style — Grade 1, Grade 2, or a custom pack. AgCommand now carries that through end to end.',
+        'Citrus is delivered from the field in bulk containers — bins, totes, or juice fruit — and packed at the packing house later. AgCommand tracks each lot by the container it left the field in, and carries that through to the load manifest.',
         [
-          'When a picker-packer scans a full pallet, they pick the lot that matches the pack style they packed. That one tap sets the lot number and the pack style together.',
-          'If the lot marketing issued isn\u2019t in the system yet, tap "New lot" right there to register it — number, block, and pack style — without leaving the pallet.',
+          'When a full bin or pallet is scanned, the crew picks the lot that matches what was delivered. That one tap sets the lot number and the container type together.',
+          'If the lot isn\u2019t in the system yet, tap "New lot" right there to register it — number, block, and container type — without leaving the screen.',
           'The office can also pre-register all the lot numbers ahead of harvest from "Manage lot numbers" on the Loads screen.'
         ],
-        'Pack styles are configurable per commodity — the app starts with Grade 1 / Grade 2 / Custom and lets you add your own, which it remembers for that commodity.',
-        'The shipping manifest now <strong>subtotals cartons by pack style</strong>, so a buyer reconciling an order sees Grade 1 vs Grade 2 vs Custom at a glance.'
+        'Container types are configurable per commodity — the app starts with Bins / Totes / Juice / Custom and lets you add your own, which it remembers for that commodity.',
+        'The shipping manifest <strong>subtotals by container type</strong>, so the packing house and buyers see Bins vs Totes vs Juice at a glance, each traceable back to its block, crew, and harvest date.'
       ]
     },
     es: {
@@ -19378,7 +19454,13 @@ function lotTraceback(lotId){
    Marketing issues a distinct lot number per pack style, so pack style is a
    lot attribute. Styles are configurable per commodity; any commodity with
    none configured falls back to a default trio. */
-const DEFAULT_PACK_STYLES = ['Grade 1', 'Grade 2', 'Custom'];
+/* Citrus is delivered from the field in bulk containers and packed/graded
+   later at the packing house — Cecelia does NOT field-pack. So the "pack
+   style" at the field/loads stage is the container the fruit leaves the
+   field in, not a finished carton grade. Defaults reflect that. The
+   per-commodity configuration system is unchanged — these are just the
+   starting options, and the office can add its own. */
+const DEFAULT_PACK_STYLES = ['Bins', 'Totes', 'Juice', 'Custom'];
 
 /* Selectable pack-style labels for a commodity (configured ones first,
    else the default trio). Always includes 'Custom' as an escape hatch. */
@@ -19870,7 +19952,7 @@ function createInlineLot(){
   const f = FIELDS[fieldId];
   const commodity = f ? f.crop : '';
   // Remember this pack style for the commodity going forward
-  if(['Grade 1','Grade 2','Custom'].indexOf(packStyle)===-1 || packStylesFor(commodity).indexOf(packStyle)===-1){
+  if(['Bins','Totes','Juice','Custom'].indexOf(packStyle)===-1 || packStylesFor(commodity).indexOf(packStyle)===-1){
     addPackStyleOption(commodity, packStyle);
   }
   const now = new Date().toISOString();
@@ -21023,18 +21105,18 @@ function generateLoadManifestPDF(loadId){
     });
   }
 
-  // Pack-style subtotals (order reconciliation by grade)
+  // Container-type subtotals (reconciliation by bins / totes / juice)
   const psKeys = Object.keys(packStyleTotals);
   if(psKeys.length){
     y += 6; doc.setDrawColor(201,163,91); doc.setLineWidth(.5); doc.line(M, y-10, PW-M, y-10);
     doc.setFont('helvetica','bold'); doc.setFontSize(9);
-    doc.text('By pack style:', M+4, y);
-    let xx = M+92;
+    doc.text('By container type:', M+4, y);
+    let xx = M+108;
     psKeys.sort().forEach(k=>{
       const seg = `${k}: ${packStyleTotals[k]}`;
       doc.setFont('helvetica','normal'); doc.text(seg, xx, y);
       xx += doc.getTextWidth(seg) + 18;
-      if(xx > PW - M - 80){ y += 14; xx = M+92; }
+      if(xx > PW - M - 80){ y += 14; xx = M+108; }
     });
     y += 8;
   }
