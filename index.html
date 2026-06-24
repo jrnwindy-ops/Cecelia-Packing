@@ -2320,9 +2320,47 @@ const db = {
       if(fieldsRes.error) throw fieldsRes.error;
       const rows = fieldsRes.data||[];
       if(rows.length===0) return false;
+      // Snapshot the seeded geometry BEFORE we replace FIELDS with DB rows.
+      // The blocks were first seeded to the DB with empty polygons; the real
+      // boundaries live in the bundled seed FIELDS. If a DB row is missing its
+      // polygon, restore it from the seed and push the fix back up so the cloud
+      // copy gets corrected once. (Keyed by id.)
+      const seedGeo = {};
+      Object.entries(FIELDS).forEach(([k,f])=>{
+        if(f.polygon && f.polygon.length>=3){
+          seedGeo[k] = {
+            polygon: f.polygon, centroid: f.centroid,
+            polygonProvisional: f.polygonProvisional===true
+          };
+        }
+      });
       Object.keys(FIELDS).forEach(k=> delete FIELDS[k]);
       rows.sort((a,b)=> (a.sort_index||0)-(b.sort_index||0));
       rows.forEach(r=> { FIELDS[r.id] = dbMap.rowToField(r); });
+      // Merge seed geometry into any DB block that came back without a polygon,
+      // and queue a one-time write-back so the DB stops returning empties.
+      const geoFixes = [];
+      Object.entries(FIELDS).forEach(([k,f])=>{
+        const sg = seedGeo[k];
+        if(sg && (!f.polygon || f.polygon.length<3)){
+          f.polygon = sg.polygon;
+          f.centroid = sg.centroid;
+          f.polygonProvisional = sg.polygonProvisional;
+          geoFixes.push(k);
+        }
+      });
+      // Also add any seeded blocks that aren't in the DB at all (newly added
+      // blocks like R7-A/V/PR, R9-A2, R17-D) so they appear and get persisted.
+      Object.entries(seedGeo).forEach(([k,sg])=>{
+        if(!FIELDS[k] && _seedFieldsSnapshot[k]){
+          FIELDS[k] = JSON.parse(JSON.stringify(_seedFieldsSnapshot[k]));
+          geoFixes.push(k);
+        }
+      });
+      if(geoFixes.length && DB_ENABLED){
+        console.log('Restoring geometry for', geoFixes.length, 'blocks to the cloud:', geoFixes.join(', '));
+        geoFixes.forEach(k=> { if(FIELDS[k]) db.saveField(k); });
+      }
       (actsRes.data||[]).forEach(a=>{ const f=FIELDS[a.field_id]; if(!f) return;
         f.activities.push({id:a.id,type:a.type,coverage:a.coverage,performedBy:a.performed_by,
           performedAt:a.performed_at,notes:a.notes,photos:a.photos||[],reiHours:a.rei_hours,
@@ -6381,6 +6419,11 @@ const FIELDS = {
     "lots": []
   }
 };
+
+/* Deep snapshot of the bundled seed FIELDS, taken before any DB load can
+   mutate FIELDS. Used to restore geometry (and re-add brand-new blocks that
+   were added after the initial DB seed) when the cloud copy is missing them. */
+const _seedFieldsSnapshot = JSON.parse(JSON.stringify(FIELDS));
 
 /* ── I18N ──────────────────────────────────────────────────────────────── */
 const I18N = {
