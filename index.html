@@ -2031,7 +2031,7 @@ const dbMap = {
       playbook_tag:f.playbookTag||'', playbook_intent:f.playbookIntent||'',
       playbook_tag_set_at:f.playbookTagSetAt||null, status:f.status||'idle',
       rei:!!f.rei, phi:!!f.phi, rei_until:f.reiUntil||null, phi_until:f.phiUntil||null,
-      last_irrigation_at:f.lastIrrigationAt||null, sort_index:f.sortIndex||0,
+      last_irrigation_at:f.lastIrrigationAt||null, wet_until:f.wetUntil||null, sort_index:f.sortIndex||0,
       manager:f.manager||'', apn:f.apn||'', site_id:f.siteId||'',
       wells:f.wells||'', rootstock:f.rootstock||'', spacing:f.spacing||'', note:f.note||'',
       updated_at:new Date().toISOString()
@@ -2046,7 +2046,7 @@ const dbMap = {
       centroid:r.centroid, polygon:r.polygon, polygonProvisional:r.polygon_provisional===true,
       plantedDate:r.planted_date, playbookTag:r.playbook_tag||'', playbookIntent:r.playbook_intent||'',
       playbookTagSetAt:r.playbook_tag_set_at, status:r.status||'idle', rei:!!r.rei, phi:!!r.phi,
-      reiUntil:r.rei_until, phiUntil:r.phi_until, lastIrrigationAt:r.last_irrigation_at,
+      reiUntil:r.rei_until, phiUntil:r.phi_until, lastIrrigationAt:r.last_irrigation_at, wetUntil:r.wet_until,
       sortIndex:r.sort_index||0,
       manager:r.manager||'', apn:r.apn||'', siteId:r.site_id||'',
       wells:r.wells||'', rootstock:r.rootstock||'', spacing:r.spacing||'', note:r.note||'',
@@ -6245,6 +6245,8 @@ const I18N = {
       irrigJustNow:'Irrigated within the last hour — wet ground',
       irrigHoursAgo:'Irrigated {0}h ago — ground likely wet',
       irrigDaysAgo:'Last irrigation {0}d ago',
+      irrigWetDays:'Wet — {0}d until dry (scout/inspect OK, no heavy equipment)',
+      irrigWetHours:'Wet — {0}h until dry (scout/inspect OK, no heavy equipment)',
       irrigToday:'Irrigated today — ground likely wet',
       irrigYesterday:'Irrigated yesterday',
       irrigNever:'No irrigation logged yet',
@@ -6264,7 +6266,7 @@ const I18N = {
       woIrrigDaysLabel:'Days to dry / re-entry',
       woIrrigDaysHelp:'Block stays restricted this many days (2 days + irrigation day = 3).',
       irrigFlood:'Flood',irrigDrip:'Drip',irrigMicro:'Micro-sprinkler',irrigSprinkler:'Sprinkler',irrigFurrow:'Furrow',
-      tlTaskAssigned:'Task assigned',daysWord:'days',
+      tlTaskAssigned:'Task assigned',daysWord:'days',irrigWetShort:'wet {0}d',
       woCrewLabel:'Crew size',woAssigneeLabel:'Assign to',woAssigneePlaceholder:'e.g. Miguel, Crew A',
       woNotesLabel:'Notes for the crew',woNotesPlaceholder:'Anything they need to know…',
       // Two-step task flow (M&R-style): save as pending vs send to worker now
@@ -6866,6 +6868,8 @@ const I18N = {
       irrigJustNow:'Regado en la última hora — terreno mojado',
       irrigHoursAgo:'Regado hace {0}h — terreno probablemente mojado',
       irrigDaysAgo:'Último riego hace {0}d',
+      irrigWetDays:'Mojado — {0}d para secar (explorar/inspeccionar OK, sin equipo pesado)',
+      irrigWetHours:'Mojado — {0}h para secar (explorar/inspeccionar OK, sin equipo pesado)',
       irrigToday:'Regado hoy — terreno probablemente mojado',
       irrigYesterday:'Regado ayer',
       irrigNever:'Sin riego registrado aún',
@@ -6884,7 +6888,7 @@ const I18N = {
       woIrrigDaysLabel:'Días para secar / reingreso',
       woIrrigDaysHelp:'El bloque queda restringido estos días (2 días + el día de riego = 3).',
       irrigFlood:'Inundación',irrigDrip:'Goteo',irrigMicro:'Micro-aspersor',irrigSprinkler:'Aspersor',irrigFurrow:'Surco',
-      tlTaskAssigned:'Tarea asignada',daysWord:'días',
+      tlTaskAssigned:'Tarea asignada',daysWord:'días',irrigWetShort:'mojado {0}d',
       woCrewLabel:'Tamaño cuadrilla',woAssigneeLabel:'Asignar a',woAssigneePlaceholder:'p.ej. Miguel, Cuadrilla A',
       woNotesLabel:'Notas para la cuadrilla',woNotesPlaceholder:'Lo que necesiten saber…',
       // Flujo de dos pasos (estilo M&R)
@@ -10348,6 +10352,10 @@ function effectiveStatus(f){
   for(const [fid, _] of _activeCheckins){
     if(FIELDS[fid] === f) return 'active';
   }
+  // Wet ground → YELLOW caution (scouting/inspection OK, no heavy equipment).
+  // Lower priority than red restrictions and active crews, higher than the
+  // normal idle/growing status. Distinct from the red chemical no-entry state.
+  if(f.wetUntil && new Date(f.wetUntil).getTime() > Date.now()) return 'caution';
   return f.status || 'idle';
 }
 
@@ -10655,7 +10663,7 @@ function renderDetail(id){
         if(tk.reiHours) detailBits.push(`REI ${tk.reiHours}h`);
         if(tk.phiDays) detailBits.push(`PHI ${tk.phiDays}d`);
         if(tk.irrigType) detailBits.push(escapeHtml(tk.irrigType));
-        if(tk.dryDays) detailBits.push(`${tk.dryDays} ${t('daysWord')}`);
+        if(tk.dryDays) detailBits.push(`💧 ${t('irrigWetShort').replace('{0}', tk.dryDays)}`);
         const detail = detailBits.length ? ` — ${detailBits.join(' · ')}` : '';
         const statusPill = `<span class="tl-task-pill">${t('tlTaskAssigned')}</span>`;
         return `<div class="tl-item tl-item-task">`+
@@ -17931,9 +17939,11 @@ function commitAssignedTask(fieldId, taskList, notes, pickedDate, overrideRecord
       ? new Date(pickedDate + 'T12:00:00').toISOString()
       : new Date().toISOString();
     f.lastIrrigationAt = refIso;
-    // Mark restricted for the dry-down window (days → hours) using the app's
-    // own REI mechanism, so the block reads WET/restricted everywhere.
-    applyREI(fieldId, dryDays * 24, refIso);
+    // Wet ground is a YELLOW advisory (scouting/inspection OK, no heavy
+    // equipment or spray rigs) — NOT the red REI no-entry restriction, which is
+    // reserved for chemical applications. Set a wetUntil window = dry-down days
+    // from the irrigation reference time.
+    f.wetUntil = new Date(new Date(refIso).getTime() + dryDays * 24 * 60 * 60 * 1000).toISOString();
     db.saveField(fieldId);
   }
 
@@ -18021,7 +18031,8 @@ function commitWorkOrder(fieldId, mode, overrideRecord){
       ? new Date(pickedDate + 'T12:00:00').toISOString()
       : new Date().toISOString();
     fIrr.lastIrrigationAt = refIso;
-    applyREI(fieldId, dryDays * 24, refIso);
+    // Yellow wet advisory, not red REI (see commitAssignedTask note).
+    fIrr.wetUntil = new Date(new Date(refIso).getTime() + dryDays * 24 * 60 * 60 * 1000).toISOString();
     db.saveField(fieldId);
   }
 
@@ -18320,6 +18331,9 @@ function expireRestrictions(){
     if(f.phi && f.phiUntil && new Date(f.phiUntil).getTime() <= now){
       f.phi = false; f.phiUntil = null; changed = true; fieldChanged = true;
     }
+    if(f.wetUntil && new Date(f.wetUntil).getTime() <= now){
+      f.wetUntil = null; changed = true; fieldChanged = true;
+    }
     if(fieldChanged){
       const id = Object.keys(FIELDS).find(k => FIELDS[k] === f);
       if(id) db.saveField(id);   // ── PERSIST expiry ──
@@ -18353,6 +18367,20 @@ function fmtRestrictionRemaining(untilIso, kind){
 function fieldConditionInfo(f){
   if(!f.lastIrrigationAt){
     return { state: 'unknown', text: t('irrigNever') };
+  }
+  // If an explicit dry-down window was set at assign/log time, honor it: the
+  // block is WET (yellow — scouting/inspection OK, no heavy equipment) until
+  // wetUntil passes, then it's workable.
+  if(f.wetUntil){
+    const remMs = new Date(f.wetUntil).getTime() - Date.now();
+    if(remMs > 0){
+      const remDays = remMs / (24 * 60 * 60 * 1000);
+      if(remDays >= 1){
+        return { state: 'wet', text: t('irrigWetDays').replace('{0}', Math.ceil(remDays)) };
+      }
+      const remHrs = Math.max(1, Math.ceil(remMs / (60 * 60 * 1000)));
+      return { state: 'wet', text: t('irrigWetHours').replace('{0}', remHrs) };
+    }
   }
   const ms = Date.now() - new Date(f.lastIrrigationAt).getTime();
   const hrs = ms / (60 * 60 * 1000);
