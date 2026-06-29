@@ -2071,6 +2071,7 @@ const db = {
       performed_at:e.performedAt, notes:e.notes||'', photos:e.photos||[],
       rei_hours:e.reiHours??null, phi_days:e.phiDays??null,
       supplement_product:e.supplementProduct||null, supplement_rate:e.supplementRate||null,
+      other_task:e.otherTask||null,
       lot_ids:e.lotIds||[], override:e.override||null,
       inspection:e.inspection||null
     }));
@@ -2367,6 +2368,7 @@ const db = {
           phiDays:a.phi_days,
           supplementProduct:a.supplement_product||undefined,
           supplementRate:a.supplement_rate||undefined,
+          otherTask:a.other_task||undefined,
           lotIds:a.lot_ids||[],override:a.override||undefined,
           inspection:a.inspection||undefined}); });
       (issuesRes.data||[]).forEach(i=>{ const f=FIELDS[i.field_id]; if(!f) return;
@@ -6604,6 +6606,7 @@ const I18N = {
       wrNarrCompFlag:'{0} field(s) currently under REI or PHI restriction.',
       // Supplement details — captured when "Apply supplement" is the task
       supplementProductLabel:'Product',
+      otherTaskLabel:'Task',otherTaskSelect:'Select a task…',otherTaskCustom:'Other — type in',otherTaskCustomPlaceholder:'Describe the task',
       supplementProductPlaceholder:'e.g. ProGibb LV plus',
       supplementRateLabel:'Rate',
       supplementRatePlaceholder:'e.g. 2 gal/acre',
@@ -7222,6 +7225,7 @@ const I18N = {
       wrNarrCompFlag:'{0} campo(s) actualmente bajo restricción REI o PHI.',
       // Detalles del suplemento
       supplementProductLabel:'Producto',
+      otherTaskLabel:'Tarea',otherTaskSelect:'Seleccione una tarea…',otherTaskCustom:'Otra — escribir',otherTaskCustomPlaceholder:'Describa la tarea',
       supplementProductPlaceholder:'p.ej. ProGibb LV plus',
       supplementRateLabel:'Dosis',
       supplementRatePlaceholder:'p.ej. 2 gal/acre',
@@ -8231,7 +8235,7 @@ function openDailySummary(){
         const cov = item.coverage && item.coverage !== 'full' ? ' · ' + item.coverage : '';
         const suppDetail = ((item.type === 'supplement' || item.type === 'spray') && (item.supplementProduct || item.supplementRate))
           ? ' · ' + [item.supplementProduct, item.supplementRate].filter(Boolean).join(' · ')
-          : '';
+          : (item.type === 'other' && item.otherTask ? ' · ' + escapeHtml(item.otherTask) : '');
         return dsItemHtml(item.fieldId, {
           icon:actIcon(item.type),
           fieldName:item.fieldName,
@@ -8651,6 +8655,10 @@ function renderActivityByBlock(opts){
     if((a.type === 'supplement' || a.type === 'spray') && (a.supplementProduct || a.supplementRate)){
       const supp = [a.supplementProduct, a.supplementRate].filter(Boolean).join(' · ');
       if(supp) label = baseLabel + ' — ' + supp + cov;
+    }
+    // "Other" surfaces the specific task chosen (e.g. "Other — Suckering").
+    if(a.type === 'other' && a.otherTask){
+      label = baseLabel + ' — ' + a.otherTask + cov;
     }
     return label;
   };
@@ -9537,6 +9545,41 @@ function onWoChemicalChange(){
   if(reiEl && rei != null) reiEl.value = rei;
   if(phiEl && phi != null) phiEl.value = phi;
 }
+
+/* Reveal the free-text box when "Other — type in" is chosen in the Other-task
+   dropdown. */
+function onLogOtherChange(){
+  const sel = document.getElementById('log-other-select');
+  const customEl = document.getElementById('log-other-custom');
+  if(!sel || !customEl) return;
+  customEl.style.display = sel.value === '__custom__' ? 'block' : 'none';
+}
+
+/* ── CITRUS TASK LIST (for the "Other" activity type dropdown) ──────────────
+   Cecelia's common hand-labor / cultural tasks. Shown as a dropdown when the
+   activity type is "Other"; the last choice ("Other — type in") reveals a free
+   text box for anything not on the list. The chosen task is saved with the
+   activity and shown on the field timeline. */
+const OTHER_TASKS = [
+  'Suckering',
+  'Gathering Brush',
+  'Flushing Irrigation Lines',
+  'Shovel Work',
+  'Tying Trees',
+  'Pest Control - Abatement',
+  'Spreading Fertilizer',
+  'Spreading Ant Poison',
+  'Spreading Rodent Poison',
+  'Install Netting',
+  'Removing Netting',
+  'Gathering Soil Samples',
+  'Removing Irrigation Lines',
+  'Reinstalling Irrigation Lines',
+  'Red Scale',
+  'Installing Props',
+  'Removing Props',
+  'General Labor'
+];
 
 const ACT_TYPES = [
   /* citrus activity types — sourced from M&R Farm Management citrus vocabulary.
@@ -11497,7 +11540,6 @@ function openLogModal(fieldId){
   const split = f.halfSplit;
   const coverageOpts = [
     {id:'full', lbl:t('covFull')},
-    ...(split==='NS' ? [{id:'N/2', lbl:t('covN')},{id:'S/2', lbl:t('covS')}] : []),
     ...(split==='EW' ? [{id:'E/2', lbl:t('covE')},{id:'W/2', lbl:t('covW')}] : [])
   ];
   const attribOpts = [
@@ -11579,6 +11621,20 @@ function openLogModal(fieldId){
           `<input type="text" class="text-input" id="log-supp-rate" placeholder="${t('supplementRatePlaceholder')}">`+
         `</div>`+
       `</div>`+
+    `</div>`+
+
+    /* "Other" task picker — shown only when type === 'other'. A dropdown of
+       Cecelia's common hand-labor tasks, with a final "type in" option that
+       reveals a free-text box for anything not on the list. The chosen task is
+       saved on the activity (otherTask) and shown on the timeline. */
+    `<div class="form-row" id="log-othertask" style="display:none">`+
+      `<div class="form-label">${t('otherTaskLabel')}</div>`+
+      `<select class="text-input" id="log-other-select" onchange="onLogOtherChange()" style="width:100%">`+
+        `<option value="">${t('otherTaskSelect')}</option>`+
+        OTHER_TASKS.map(tk => `<option value="${tk.replace(/"/g,'&quot;')}">${tk}</option>`).join('')+
+        `<option value="__custom__">${t('otherTaskCustom')}</option>`+
+      `</select>`+
+      `<input type="text" class="text-input" id="log-other-custom" placeholder="${t('otherTaskCustomPlaceholder')}" style="display:none;width:100%;margin-top:8px">`+
     `</div>`+
 
     /* Pre-harvest inspection structured fields — shown only when
@@ -11685,10 +11741,12 @@ function openLogModal(fieldId){
     const lotsRow = document.getElementById('log-lots');
     const suppRow = document.getElementById('log-supplement');
     const inspRow = document.getElementById('log-inspection');
+    const otherRow = document.getElementById('log-othertask');
     if(restRow) restRow.style.display = _logState.type === 'spray' ? '' : 'none';
     if(lotsRow) lotsRow.style.display = _logState.type === 'harvest' ? '' : 'none';
     if(suppRow) suppRow.style.display = _logState.type === 'supplement' ? '' : 'none';
     if(inspRow) inspRow.style.display = _logState.type === 'inspection' ? '' : 'none';
+    if(otherRow) otherRow.style.display = _logState.type === 'other' ? '' : 'none';
     if(_logState.type === 'harvest'){
       const existing = (FIELDS[fieldId] && FIELDS[fieldId].lots) ? FIELDS[fieldId].lots : [];
       // Only auto-generate a lot when the block has none registered yet.
@@ -18419,6 +18477,17 @@ function commitLog(fieldId, overrideRecord){
     const rate    = rateInput    ? (rateInput.value    || '').trim() : '';
     if(product) entry.supplementProduct = product;
     if(rate)    entry.supplementRate    = rate;
+  }
+  // For "Other", capture which specific task was chosen (from the dropdown or
+  // the type-in box) so the timeline shows e.g. "Other — Suckering".
+  if(_logState.type === 'other'){
+    const sel = document.getElementById('log-other-select');
+    let otherTask = sel ? (sel.value || '').trim() : '';
+    if(otherTask === '__custom__'){
+      const customEl = document.getElementById('log-other-custom');
+      otherTask = customEl ? (customEl.value || '').trim() : '';
+    }
+    if(otherTask) entry.otherTask = otherTask;
   }
   // For pre-harvest inspection, capture the structured assessment + derive
   // the ready-to-harvest decision. The inspection object becomes part of
