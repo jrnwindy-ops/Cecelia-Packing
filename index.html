@@ -1964,10 +1964,10 @@ try {
 
 const dbQueue = {
   queue: [], flushing: false,
-  enqueue(label, runFn){
+  enqueue(label, runFn, fallbackFn){
     if(!DB_ENABLED) return Promise.resolve({skipped:true});
     const job = { id:'job_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
-                  label, run:runFn, status:'pending', attempts:0, error:null };
+                  label, run:runFn, fallback:fallbackFn||null, status:'pending', attempts:0, error:null };
     this.queue.push(job);
     return this.flush();
   },
@@ -1982,6 +1982,28 @@ const dbQueue = {
         this.queue.shift();
         dbStatus.clearError(job.id);
       } catch(err){
+        // If the write hit a missing optional column (older DB that hasn't run
+        // a migration yet) AND the job provided a fallback runner, retry once
+        // with the fallback (which omits the optional columns). This keeps core
+        // data persisting instead of blocking the whole queue on one column.
+        const msg = (err && (err.message || err.code || '')) + '';
+        const missingColumn = /could not find/i.test(msg)
+          || /column .* does not exist/i.test(msg)
+          || (err && err.code === 'PGRST204')
+          || /schema cache/i.test(msg);
+        if(missingColumn && job.fallback && !job._triedFallback){
+          job._triedFallback = true;
+          console.warn('DB column missing — retrying without optional fields (run pending migration):', job.label, msg);
+          try {
+            const { error: e2 } = await job.fallback();
+            if(e2) throw e2;
+            this.queue.shift();
+            dbStatus.clearError(job.id);
+            continue;
+          } catch(err2){
+            console.error('Fallback write also failed:', job.label, err2);
+          }
+        }
         job.status='failed'; job.error=err;
         console.error('DB write failed:', job.label, err);
         dbStatus.showError(job.id, job.label);
@@ -2058,7 +2080,11 @@ const dbMap = {
 const db = {
   saveField(id){
     const f=FIELDS[id]; if(!f) return Promise.resolve();
-    return dbQueue.enqueue('saveField '+id, ()=> sb.from('fields').upsert(dbMap.fieldToRow(id,f)));
+    const row = dbMap.fieldToRow(id,f);
+    const { wet_until, ...rowNoOptional } = row;
+    return dbQueue.enqueue('saveField '+id,
+      ()=> sb.from('fields').upsert(row),
+      ()=> sb.from('fields').upsert(rowNoOptional));
   },
   saveActivity(fieldId, e){
     /* Upsert (not insert) so this same function works for both creating new
@@ -2066,7 +2092,7 @@ const db = {
        modal re-saves a spray with corrected REI/PHI values). Previously this
        used .insert() which failed silently on the PK conflict, blocking the
        dbQueue and preventing subsequent saveField calls from persisting. */
-    return dbQueue.enqueue('saveActivity '+fieldId, ()=> sb.from('activities').upsert({
+    const row = {
       id:e.id, field_id:fieldId, type:e.type, coverage:e.coverage, performed_by:e.performedBy,
       performed_at:e.performedAt, notes:e.notes||'', photos:e.photos||[],
       rei_hours:e.reiHours??null, phi_days:e.phiDays??null,
@@ -2074,7 +2100,11 @@ const db = {
       other_task:e.otherTask||null,
       lot_ids:e.lotIds||[], override:e.override||null,
       inspection:e.inspection||null
-    }));
+    };
+    const { other_task, ...rowNoOptional } = row;
+    return dbQueue.enqueue('saveActivity '+fieldId,
+      ()=> sb.from('activities').upsert(row),
+      ()=> sb.from('activities').upsert(rowNoOptional));
   },
   saveIssue(fieldId, i){
     return dbQueue.enqueue('saveIssue '+fieldId, ()=> sb.from('issues').insert({
@@ -2103,7 +2133,7 @@ const db = {
     }).eq('id', l.id));
   },
   saveTask(fieldId, tk){
-    return dbQueue.enqueue('saveTask '+tk.id, ()=> sb.from('assigned_tasks').insert({
+    const row = {
       id:tk.id, field_id:fieldId, tasks:tk.tasks||[], coverage:tk.coverage, crew_size:tk.crewSize??null,
       assigned_to:tk.assignedTo||null, assigned_at:tk.assignedAt, scheduled_for:tk.scheduledFor||null,
       sent_via:tk.sentVia||null, sent_at:tk.sentAt||null, status:tk.status, notes:tk.notes||'',
@@ -2112,7 +2142,11 @@ const db = {
       other_task:tk.otherTask||null,
       completed_at:tk.completedAt||null, cancelled_at:tk.cancelledAt||null,
       built_message:tk.builtMessage||'', override:tk.override||null
-    }));
+    };
+    const { other_task, ...rowNoOptional } = row;
+    return dbQueue.enqueue('saveTask '+tk.id,
+      ()=> sb.from('assigned_tasks').insert(row),
+      ()=> sb.from('assigned_tasks').insert(rowNoOptional));
   },
   updateTask(tk){
     return dbQueue.enqueue('updateTask '+tk.id, ()=> sb.from('assigned_tasks').update({
