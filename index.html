@@ -969,6 +969,18 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 .load-card-actions{display:flex;gap:8px;margin-top:11px}
 .load-card-actions button{flex:1;border-radius:9px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--bd);background:var(--surf);color:var(--tx2)}
 .load-card-actions .lc-manifest{background:var(--fc-red);color:#fff;border-color:var(--fc-red)}
+.ql-context{display:flex;gap:8px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}
+.ql-ctx-item{flex:1;min-width:0}
+.ql-ctx-lbl{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--tx4);font-weight:700}
+.ql-ctx-val{font-size:15px;font-weight:700;color:var(--fc-red);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ql-big{font-size:18px;font-weight:700;padding:12px}
+.ql-more{margin-top:14px;border-top:1px solid var(--bd);padding-top:8px}
+.ql-more summary{font-size:13px;font-weight:600;color:var(--tx2);cursor:pointer;padding:6px 0;list-style:none}
+.ql-more summary::-webkit-details-marker{display:none}
+.ql-more summary::before{content:'▸ ';color:var(--tx4)}
+.ql-more[open] summary::before{content:'▾ '}
+.ql-actions{display:flex;gap:10px;margin-top:18px}
+.ql-actions button{flex:1}
 .loads-empty{text-align:center;color:var(--tx3);font-size:14px;padding:30px 16px}
 /* Load builder modal */
 .load-lot-pick{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer;background:var(--surf)}
@@ -2248,13 +2260,22 @@ const db = {
      carry lots from multiple blocks. lot_ids is the link back; each lot's
      own field_id/commodity/crew/harvest-date provides the trace-back. */
   saveLoad(ld){
-    return dbQueue.enqueue('saveLoad '+ld.id, ()=> sb.from('loads').insert({
+    const row = {
       id:ld.id, ship_date:ld.shipDate||null, bol_number:ld.bolNumber||'',
       carrier:ld.carrier||'', driver:ld.driver||'', truck_plate:ld.truckPlate||'',
       destination:ld.destination||'', lot_ids:ld.lotIds||[],
       total_quantity:ld.totalQuantity||'', status:ld.status||'building', notes:ld.notes||'',
-      eta:ld.eta||null, bol_qr_id:ld.bolQrId||'', pallet_qr_ids:ld.palletQrIds||[]
-    }));
+      eta:ld.eta||null, bol_qr_id:ld.bolQrId||'', pallet_qr_ids:ld.palletQrIds||[],
+      // Citrus quick-ticket fields
+      field_id:ld.fieldId||null, block:ld.block||'', variety:ld.variety||'',
+      bin_count:ld.binCount||'', pick_type:ld.pickType||'', loader:ld.loader||'',
+      hauler:ld.hauler||'', contractor:ld.contractor||'', crew_boss:ld.crewBoss||'',
+      pci_ticket:ld.pciTicket||''
+    };
+    const { field_id, block, variety, bin_count, pick_type, loader, hauler, contractor, crew_boss, pci_ticket, ...rowCore } = row;
+    return dbQueue.enqueue('saveLoad '+ld.id,
+      ()=> sb.from('loads').insert(row),
+      ()=> sb.from('loads').insert(rowCore));
   },
   updateLoad(ld){
     return dbQueue.enqueue('updateLoad '+ld.id, ()=> sb.from('loads').update({
@@ -2280,7 +2301,11 @@ const db = {
           carrier:r.carrier||'', driver:r.driver||'', truckPlate:r.truck_plate||'',
           destination:r.destination||'', lotIds:r.lot_ids||[], totalQuantity:r.total_quantity||'',
           status:r.status||'building', notes:r.notes||'',
-          eta:r.eta||null, bolQrId:r.bol_qr_id||'', palletQrIds:r.pallet_qr_ids||[]
+          eta:r.eta||null, bolQrId:r.bol_qr_id||'', palletQrIds:r.pallet_qr_ids||[],
+          fieldId:r.field_id||null, block:r.block||'', variety:r.variety||'',
+          binCount:r.bin_count||'', pickType:r.pick_type||'', loader:r.loader||'',
+          hauler:r.hauler||'', contractor:r.contractor||'', crewBoss:r.crew_boss||'',
+          pciTicket:r.pci_ticket||''
         };
       });
       return true;
@@ -6873,9 +6898,9 @@ const I18N = {
       /* Loads / shipping manifest */
       loadsBtn:'Loads',
       loadsTitle:'Loads & Shipping Manifests',
-      loadsSub:'Group harvested lots into truck loads. Each manifest traces every box back to its block, crew, and harvest date.',
+      loadsSub:'One ticket per truck. Each load is bins of a single variety from one block, traced back to the block and crew.',
       loadsBuildBtn:'Build a load',
-      loadsEmpty:'No loads yet. Tap “Build a load” to create your first shipping manifest.',
+      loadsEmpty:'No load tickets yet. Tap “New load ticket” to create one.',
       loadNewTitle:'Build load',
       loadEditTitle:'Edit load',
       loadSecShipping:'Shipping detail',
@@ -6906,6 +6931,20 @@ const I18N = {
       loadDeleted:'Load {0} deleted',
       loadDeleteConfirm:'Delete load {0}? This cannot be undone.',
       loadManifestBtn:'Manifest',
+      /* Quick citrus load ticket (crew-boss flow) */
+      qlTitle:'Load Ticket',
+      qlBlock:'Block',qlVariety:'Variety',qlRanch:'Ranch',
+      qlBins:'# Bins picked',qlBinsPlaceholder:'e.g. 18 or 18½',qlBinsUnit:'bins',
+      qlDest:'Destination',qlDestPlaceholder:'e.g. Porterville Citrus / PCI',
+      qlPickType:'Pick type (optional)',qlStrip:'Strip',qlSizePick:'Size Pick',qlRing:'# Ring',
+      qlMoreFields:'More fields (loader, hauler, driver, ticket #…)',
+      qlContractor:'Contractor',qlCrewBoss:'Crew',qlLoader:'Loader',qlHauler:'Hauler',
+      qlDriver:'Driver',qlPciTicket:'PCI Ticket #',qlComments:'Comments',
+      qlCancel:'Cancel',qlSave:'Save & generate ticket',
+      qlNeedBins:'Enter the number of bins.',qlNeedDest:'Enter a destination.',
+      qlSaved:'Load ticket {0} saved',
+      qlNewTicket:'New load ticket',qlPickBlock:'Which block is this load from?',qlSearchBlock:'Search block…',
+      woMsgManifest:'🍊 Create load ticket (tap when truck is loaded)',
       loadManifestReady:'Manifest PDF ready — download started',
       loadEdit:'Edit',
       loadDelete:'Delete',
@@ -7485,7 +7524,7 @@ const I18N = {
       /* Cargas / manifiesto de embarque */
       loadsBtn:'Cargas',
       loadsTitle:'Cargas y Manifiestos de Embarque',
-      loadsSub:'Agrupe lotes cosechados en cargas de camión. Cada manifiesto rastrea cada caja hasta su bloque, cuadrilla y fecha de cosecha.',
+      loadsSub:'Una boleta por camión. Cada carga son bins de una sola variedad de un bloque, rastreada al bloque y la cuadrilla.',
       loadsBuildBtn:'Crear una carga',
       loadsEmpty:'Aún no hay cargas. Toque “Crear una carga” para crear su primer manifiesto.',
       loadNewTitle:'Crear carga',
@@ -7518,6 +7557,20 @@ const I18N = {
       loadDeleted:'Carga {0} eliminada',
       loadDeleteConfirm:'¿Eliminar carga {0}? Esto no se puede deshacer.',
       loadManifestBtn:'Manifiesto',
+      /* Boleta rápida de carga (cuadrilla) */
+      qlTitle:'Boleta de Carga',
+      qlBlock:'Bloque',qlVariety:'Variedad',qlRanch:'Rancho',
+      qlBins:'# Bins cosechados',qlBinsPlaceholder:'ej. 18 o 18½',qlBinsUnit:'bins',
+      qlDest:'Destino',qlDestPlaceholder:'ej. Porterville Citrus / PCI',
+      qlPickType:'Tipo de cosecha (opcional)',qlStrip:'Strip',qlSizePick:'Por tamaño',qlRing:'# Ring',
+      qlMoreFields:'Más campos (cargador, transportista, chofer, boleta…)',
+      qlContractor:'Contratista',qlCrewBoss:'Cuadrilla',qlLoader:'Cargador',qlHauler:'Transportista',
+      qlDriver:'Chofer',qlPciTicket:'Boleta PCI #',qlComments:'Comentarios',
+      qlCancel:'Cancelar',qlSave:'Guardar y generar boleta',
+      qlNeedBins:'Ingrese el número de bins.',qlNeedDest:'Ingrese un destino.',
+      qlSaved:'Boleta de carga {0} guardada',
+      qlNewTicket:'Nueva boleta de carga',qlPickBlock:'¿De qué bloque es esta carga?',qlSearchBlock:'Buscar bloque…',
+      woMsgManifest:'🍊 Crear boleta de carga (toque cuando el camión esté cargado)',
       loadManifestReady:'PDF del manifiesto listo — descarga iniciada',
       loadEdit:'Editar',
       loadDelete:'Eliminar',
@@ -18209,6 +18262,15 @@ function buildWorkOrderMessage(fieldId, taskId){
   msg += '\n' + t('woMsgNav') + ':\n' + navUrl + '\n';
   msg += '\n' + t('woMsgCheckin') + ':\n' + checkinUrl;
 
+  // HARVEST ONLY: include a load-ticket link. Tapping it opens the quick
+  // load-manifest screen pre-filled with this block's grower/block/variety/date
+  // so the crew boss just enters bins + destination per truck. Only added when
+  // the harvest task is part of this work order.
+  if(_woState.tasks.has('harvest')){
+    const manifestUrl = baseUrl + '?field=' + fieldId + '&manifest=1#' + fieldId;
+    msg += '\n\n' + t('woMsgManifest') + ':\n' + manifestUrl;
+  }
+
   return {msg, assignee, crew, taskList, notes};
 }
 function sendWorkOrder(fieldId, mode){
@@ -21379,9 +21441,7 @@ function renderLoadsView(){
       `<div class="loads-intro-sub">${t('loadsSub')}</div>`+
     `</div>`+
     inboundTrucksTileHTML()+
-    `<button class="load-build-scanbtn" id="loads-scan-btn">🏷 ${t('palletScanCta')}</button>`+
-    `<button class="loads-build-btn" id="loads-new-btn">＋ ${t('loadsBuildBtn')}</button>`+
-    `<button class="loads-manage-btn" id="loads-manage-btn">🏷 ${t('lotMgmtCta')}</button>`;
+    `<button class="loads-build-btn" id="loads-newticket-btn">🍊 ${t('qlNewTicket')}</button>`;
 
   if(loads.length === 0){
     html += `<div class="loads-empty">${t('loadsEmpty')}</div>`;
@@ -21390,16 +21450,23 @@ function renderLoadsView(){
   }
   scroll.innerHTML = html;
 
-  document.getElementById('loads-new-btn').onclick = ()=> openLoadBuilder(null);
-  const manageBtn = document.getElementById('loads-manage-btn');
-  if(manageBtn) manageBtn.onclick = openLotManager;
-  const scanBtn = document.getElementById('loads-scan-btn');
-  if(scanBtn) scanBtn.onclick = startPalletScan;
+  // New citrus load ticket — pick a block first (no work-order context here).
+  document.getElementById('loads-newticket-btn').onclick = ()=> promptBlockThenLoadTicket();
   scroll.querySelectorAll('[data-load-edit]').forEach(b=>{
-    b.onclick = ()=> openLoadBuilder(b.dataset.loadEdit);
+    b.onclick = ()=> {
+      const ld = LOADS[b.dataset.loadEdit];
+      if(ld && (ld.fieldId || ld.binCount)) openQuickLoadTicket(ld.fieldId, ld.id);
+      else openLoadBuilder(b.dataset.loadEdit);
+    };
   });
   scroll.querySelectorAll('[data-load-manifest]').forEach(b=>{
-    b.onclick = ()=> generateLoadManifestPDF(b.dataset.loadManifest);
+    b.onclick = ()=> {
+      const ld = LOADS[b.dataset.loadManifest];
+      // Citrus quick-ticket loads (have a fieldId / binCount) use the load-ticket
+      // PDF; legacy lot/pallet loads use the full manifest.
+      if(ld && (ld.fieldId || ld.binCount)) generateCitrusLoadTicketPDF(ld.id);
+      else generateLoadManifestPDF(b.dataset.loadManifest);
+    };
   });
   scroll.querySelectorAll('[data-load-del]').forEach(b=>{
     b.onclick = ()=> deleteLoadConfirm(b.dataset.loadDel);
@@ -21409,6 +21476,33 @@ function renderLoadsView(){
 function renderLoadCard(ld){
   const cfg = LOAD_STATUSES[ld.status] || LOAD_STATUSES.building;
   const statusLbl = t('loadStatus_'+ld.status) || ld.status;
+
+  // CITRUS quick-ticket card: bins of a single variety from one block.
+  if(ld.fieldId || ld.binCount){
+    return `<div class="load-card">`+
+      `<div class="load-card-head">`+
+        `<div>`+
+          `<div class="load-card-id">${escapeHtml(ld.id)}</div>`+
+          `<div class="load-card-dest">${t('loadTo')} ${escapeHtml(ld.destination||'—')}</div>`+
+        `</div>`+
+        `<span class="load-status-badge" style="color:${cfg.color};background:${cfg.bg}">${statusLbl}</span>`+
+      `</div>`+
+      `<div class="load-card-meta">`+
+        `<span><b>${t('qlBlock')}:</b> ${escapeHtml(ld.block||'—')}</span>`+
+        `<span><b>${t('qlVariety')}:</b> ${escapeHtml(ld.variety||'—')}</span>`+
+        `<span><b>${t('qlBins')}:</b> ${escapeHtml(ld.binCount||'—')}</span>`+
+        `<span><b>${t('loadShipDate')}:</b> ${loadFmtDate(ld.shipDate)}</span>`+
+        (ld.crewBoss?`<span><b>${t('qlCrewBoss')}:</b> ${escapeHtml(ld.crewBoss)}</span>`:'')+
+        (ld.pciTicket?`<span><b>${t('qlPciTicket')}:</b> ${escapeHtml(ld.pciTicket)}</span>`:'')+
+      `</div>`+
+      `<div class="load-card-actions">`+
+        `<button data-load-del="${ld.id}">${t('loadDelete')}</button>`+
+        `<button data-load-edit="${ld.id}">${t('loadEdit')}</button>`+
+        `<button class="lc-manifest" data-load-manifest="${ld.id}">📄 ${t('loadManifestBtn')}</button>`+
+      `</div>`+
+    `</div>`;
+  }
+
   const pallets = palletsForLoad(ld.id);
   const cartonTot = sumCartons(pallets.map(p=>p.qrId));
   // Roll up to lots for the trace summary
@@ -21447,6 +21541,162 @@ function renderLoadCard(ld){
       `<button class="lc-manifest" data-load-manifest="${ld.id}">📄 ${t('loadManifestBtn')}</button>`+
     `</div>`+
   `</div>`;
+}
+
+/* ── QUICK CITRUS LOAD TICKET ────────────────────────────────────────────
+   The crew-boss-facing flow. Opened from the harvest work order's manifest
+   link (?manifest=1) pre-filled with the block's block/variety/ranch, OR from
+   the Loads screen. The crew boss just enters bins + destination per truck —
+   no lots, no pallet scanning. Each submit creates one load ticket; they can
+   do this 5–10× a day. Mirrors the Porterville Citrus paper load ticket. */
+let _quickLoad = null;
+/* From the Loads screen there's no work-order context, so let the user pick the
+   block first (a simple prompt list), then open the pre-filled load ticket. */
+function promptBlockThenLoadTicket(){
+  // Prefer blocks that have an active check-in or a harvest assigned/recent,
+  // but allow any block. Build a quick searchable list via a lightweight modal.
+  const blocks = Object.entries(FIELDS)
+    .map(([id,f])=>({id, label:`${f.displayId} · ${f.variety||(f.crop&&CROPS[f.crop]?CROPS[f.crop][lang]:'')||''}`}))
+    .sort((a,b)=> a.label.localeCompare(b.label));
+  const body = document.getElementById('modal-load-body');
+  document.getElementById('modal-backdrop-load').classList.add('open');
+  document.getElementById('modal-load').classList.add('open');
+  body.innerHTML =
+    `<div class="modal-title">${t('qlNewTicket')}</div>`+
+    `<div class="modal-sub">${t('qlPickBlock')}</div>`+
+    `<input type="text" class="text-input" id="ql-block-search" placeholder="${t('qlSearchBlock')}" style="margin:10px 0">`+
+    `<div id="ql-block-list" style="max-height:50vh;overflow-y:auto">`+
+      blocks.map(b=>`<div class="pallet-lot-opt" data-blockpick="${b.id}">${escapeHtml(b.label)}</div>`).join('')+
+    `</div>`+
+    `<div class="ql-actions"><button class="btn-secondary-action" id="ql-block-cancel">${t('qlCancel')}</button></div>`;
+  const list = document.getElementById('ql-block-list');
+  list.querySelectorAll('[data-blockpick]').forEach(el=>{
+    el.onclick = ()=> openQuickLoadTicket(el.dataset.blockpick);
+  });
+  const search = document.getElementById('ql-block-search');
+  search.oninput = ()=>{
+    const q = search.value.toLowerCase();
+    list.querySelectorAll('[data-blockpick]').forEach(el=>{
+      el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  };
+  document.getElementById('ql-block-cancel').onclick = closeLoadBuilder;
+}
+function openQuickLoadTicket(fieldId, loadId){
+  const f = FIELDS[fieldId];
+  const variety = f ? (f.variety || (f.crop && CROPS[f.crop] ? CROPS[f.crop][lang] : '') || '') : '';
+  const ci = fieldId ? _activeCheckins.get(fieldId) : null;
+  const crewBoss = ci ? (ci.crewBoss || ci.workerName || '') : '';
+  const existing = loadId ? LOADS[loadId] : null;
+  _quickLoad = existing ? {
+    ...existing, isNew:false,
+    ranch: f ? (lang==='es'?f.ranchEs:f.ranch) : (existing.ranch||'')
+  } : {
+    id: generateLoadId(), isNew:true,
+    fieldId: fieldId,
+    block: f ? f.displayId : '',
+    variety: variety,
+    ranch: f ? (lang==='es'?f.ranchEs:f.ranch) : '',
+    shipDate: new Date().toISOString().slice(0,10),
+    binCount:'', destination:'', pickType:'', loader:'', hauler:'',
+    contractor:'', driver:'', crewBoss: crewBoss, pciTicket:'', notes:'',
+    status:'shipped'
+  };
+  renderQuickLoadBody();
+  document.getElementById('modal-backdrop-load').classList.add('open');
+  document.getElementById('modal-load').classList.add('open');
+}
+
+function renderQuickLoadBody(){
+  const s = _quickLoad; if(!s) return;
+  const body = document.getElementById('modal-load-body');
+  const f = s.fieldId ? FIELDS[s.fieldId] : null;
+  body.innerHTML =
+    `<div class="modal-title">${t('qlTitle')}</div>`+
+    `<div class="modal-sub">${escapeHtml(s.id)} · ${loadFmtDate(s.shipDate)}</div>`+
+    `<div class="ql-context">`+
+      `<div class="ql-ctx-item"><div class="ql-ctx-lbl">${t('qlBlock')}</div><div class="ql-ctx-val">${escapeHtml(s.block||'—')}</div></div>`+
+      `<div class="ql-ctx-item"><div class="ql-ctx-lbl">${t('qlVariety')}</div><div class="ql-ctx-val">${escapeHtml(s.variety||'—')}</div></div>`+
+      `<div class="ql-ctx-item"><div class="ql-ctx-lbl">${t('qlRanch')}</div><div class="ql-ctx-val">${escapeHtml(s.ranch||(f?(lang==='es'?f.ranchEs:f.ranch):'')||'—')}</div></div>`+
+    `</div>`+
+    `<div class="field-pair" style="margin-top:14px">`+
+      `<div><div class="form-label">${t('qlBins')} *</div>`+
+        `<input type="text" inputmode="decimal" class="text-input ql-big" id="ql-bins" value="${escapeHtml(s.binCount)}" placeholder="${t('qlBinsPlaceholder')}"></div>`+
+      `<div><div class="form-label">${t('qlDest')} *</div>`+
+        `<input type="text" class="text-input ql-big" id="ql-dest" value="${escapeHtml(s.destination)}" placeholder="${t('qlDestPlaceholder')}"></div>`+
+    `</div>`+
+    `<div class="form-row" style="margin-top:12px">`+
+      `<div class="form-label">${t('qlPickType')}</div>`+
+      `<div class="chip-row" id="ql-picktype">`+
+        [['strip',t('qlStrip')],['size',t('qlSizePick')],['ring',t('qlRing')]].map(([id,lbl])=>
+          `<button class="chip${s.pickType===id?' selected':''}" data-pick="${id}">${lbl}</button>`).join('')+
+      `</div>`+
+    `</div>`+
+    `<details class="ql-more"${(s.loader||s.hauler||s.driver||s.contractor||s.pciTicket)?' open':''}>`+
+      `<summary>${t('qlMoreFields')}</summary>`+
+      `<div class="field-pair" style="margin-top:10px">`+
+        `<div><div class="form-label">${t('qlContractor')}</div>`+
+          `<input type="text" class="text-input" id="ql-contractor" value="${escapeHtml(s.contractor)}"></div>`+
+        `<div><div class="form-label">${t('qlCrewBoss')}</div>`+
+          `<input type="text" class="text-input" id="ql-crewboss" value="${escapeHtml(s.crewBoss)}"></div>`+
+      `</div>`+
+      `<div class="field-pair" style="margin-top:8px">`+
+        `<div><div class="form-label">${t('qlLoader')}</div>`+
+          `<input type="text" class="text-input" id="ql-loader" value="${escapeHtml(s.loader)}"></div>`+
+        `<div><div class="form-label">${t('qlHauler')}</div>`+
+          `<input type="text" class="text-input" id="ql-hauler" value="${escapeHtml(s.hauler)}"></div>`+
+      `</div>`+
+      `<div class="field-pair" style="margin-top:8px">`+
+        `<div><div class="form-label">${t('qlDriver')}</div>`+
+          `<input type="text" class="text-input" id="ql-driver" value="${escapeHtml(s.driver)}"></div>`+
+        `<div><div class="form-label">${t('qlPciTicket')}</div>`+
+          `<input type="text" class="text-input" id="ql-pci" value="${escapeHtml(s.pciTicket)}"></div>`+
+      `</div>`+
+      `<div class="form-row" style="margin-top:8px">`+
+        `<div class="form-label">${t('qlComments')}</div>`+
+        `<textarea class="textarea-input" id="ql-notes">${escapeHtml(s.notes)}</textarea>`+
+      `</div>`+
+    `</details>`+
+    `<div class="ql-actions">`+
+      `<button class="btn-secondary-action" id="ql-cancel">${t('qlCancel')}</button>`+
+      `<button class="btn-primary-action" id="ql-save">${t('qlSave')}</button>`+
+    `</div>`;
+
+  body.querySelectorAll('#ql-picktype .chip').forEach(c=>{
+    c.onclick = ()=>{
+      const v = c.dataset.pick;
+      s.pickType = (s.pickType === v) ? '' : v;
+      body.querySelectorAll('#ql-picktype .chip').forEach(x=>x.classList.toggle('selected', x.dataset.pick===s.pickType));
+    };
+  });
+  document.getElementById('ql-cancel').onclick = closeLoadBuilder;
+  document.getElementById('ql-save').onclick = saveQuickLoad;
+  setTimeout(()=>{ const b=document.getElementById('ql-bins'); if(b) b.focus(); }, 60);
+}
+
+function saveQuickLoad(){
+  const s = _quickLoad; if(!s) return;
+  const bins = (document.getElementById('ql-bins').value || '').trim();
+  const dest = (document.getElementById('ql-dest').value || '').trim();
+  if(!bins){ flash(t('qlNeedBins'), true); document.getElementById('ql-bins').focus(); return; }
+  if(!dest){ flash(t('qlNeedDest'), true); document.getElementById('ql-dest').focus(); return; }
+  s.binCount = bins;
+  s.destination = dest;
+  const g = id => { const el=document.getElementById(id); return el ? (el.value||'').trim() : ''; };
+  s.contractor = g('ql-contractor'); s.crewBoss = g('ql-crewboss');
+  s.loader = g('ql-loader'); s.hauler = g('ql-hauler'); s.driver = g('ql-driver');
+  s.pciTicket = g('ql-pci'); s.notes = g('ql-notes');
+  s.totalQuantity = bins + ' ' + t('qlBinsUnit');
+  s.status = 'shipped';
+  s.shipDate = s.shipDate || new Date().toISOString().slice(0,10);
+  const isNew = s.isNew;
+  const rec = {...s}; delete rec.isNew;
+  LOADS[s.id] = rec;
+  if(DB_ENABLED){ isNew ? db.saveLoad(rec) : db.updateLoad(rec); }
+  closeLoadBuilder();
+  flash(t('qlSaved').replace('{0}', s.id));
+  generateCitrusLoadTicketPDF(s.id);
+  if(currentView === 'loads') renderLoadsView();
 }
 
 /* ── LOAD BUILDER MODAL ─────────────────────────────────────────────────── */
@@ -21735,6 +21985,89 @@ function deleteLoadConfirm(loadId){
    The audit-grade shipping document. Header = load/BOL/carrier/destination.
    Body = one row per lot, each tracing back to block · commodity · crew ·
    harvest date · quantity. Every box on the truck ties to a specific block. */
+/* Cecelia-branded citrus LOAD TICKET PDF — mirrors the Porterville Citrus paper
+   load ticket the crews use today, but pre-filled from the work order (block,
+   variety, ranch, date) with the by-hand fields the crew boss entered. One
+   ticket per truck. */
+function generateCitrusLoadTicketPDF(loadId){
+  const ld = LOADS[loadId]; if(!ld){ flash('Load not found', true); return; }
+  if(typeof window.jspdf === 'undefined' || !window.jspdf || !window.jspdf.jsPDF){ alert('PDF engine not available'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'pt', format:'letter'});
+  const PW = doc.internal.pageSize.getWidth();
+  const M = 54;
+  const NAVY = [42,42,72];
+  const GOLD = [252,189,48];
+
+  doc.setFillColor(NAVY[0],NAVY[1],NAVY[2]);
+  doc.rect(0,0,PW,78,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFont('times','bold'); doc.setFontSize(20);
+  doc.text('Cecelia Packing Corporation', M, 34);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+  doc.text('Orange Cove, CA 93646  ·  (559) 626-5000', M, 52);
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('LOAD TICKET', M, 70);
+  doc.setTextColor(GOLD[0],GOLD[1],GOLD[2]);
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('No. ' + (ld.id||'—'), PW - M, 40, {align:'right'});
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text('Date: ' + loadFmtDate(ld.shipDate), PW - M, 60, {align:'right'});
+
+  let y = 112;
+  doc.setTextColor(26,26,26);
+  const ranch = ld.ranch || (ld.fieldId && FIELDS[ld.fieldId] ? (lang==='es'?FIELDS[ld.fieldId].ranchEs:FIELDS[ld.fieldId].ranch) : '');
+  const pickLabel = ld.pickType === 'strip' ? 'Strip' : ld.pickType === 'size' ? 'Size Pick' : ld.pickType === 'ring' ? '# Ring' : '—';
+  const rows = [
+    ['Grower', 'Cecelia Packing', 'Block', ld.block || '—'],
+    ['Ranch', ranch || '—', 'Variety', ld.variety || '—'],
+    ['Contractor', ld.contractor || '—', 'Crew', ld.crewBoss || '—'],
+    ['Loader', ld.loader || '—', 'Hauler', ld.hauler || '—'],
+    ['Driver', ld.driver || '—', 'Pick type', pickLabel],
+    ['Destination', ld.destination || '—', 'PCI Ticket #', ld.pciTicket || '—']
+  ];
+  doc.setFontSize(11);
+  rows.forEach(r=>{
+    doc.setFont('helvetica','bold'); doc.text(r[0] + ':', M, y);
+    doc.setFont('helvetica','normal'); doc.text(String(r[1]), M+96, y);
+    doc.setFont('helvetica','bold'); doc.text(r[2] + ':', M+300, y);
+    doc.setFont('helvetica','normal'); doc.text(String(r[3]), M+392, y);
+    y += 24;
+  });
+
+  y += 8;
+  doc.setDrawColor(GOLD[0],GOLD[1],GOLD[2]); doc.setLineWidth(2);
+  doc.roundedRect(M, y, PW-2*M, 56, 6, 6, 'S');
+  doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.setTextColor(NAVY[0],NAVY[1],NAVY[2]);
+  doc.text('# BINS PICKED', M+18, y+34);
+  doc.setFontSize(26);
+  doc.text(String(ld.binCount || '—'), PW - M - 18, y+38, {align:'right'});
+  y += 80;
+  doc.setTextColor(26,26,26);
+
+  if(ld.notes){
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text('Comments:', M, y);
+    doc.setFont('helvetica','normal');
+    const lines = doc.splitTextToSize(ld.notes, PW-2*M-70);
+    doc.text(lines, M+70, y);
+    y += 16 + lines.length*12;
+  }
+
+  y = Math.max(y, 640);
+  doc.setDrawColor(200,200,200); doc.setLineWidth(.5);
+  doc.line(M, y, M+300, y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,90,90);
+  doc.text('Received by', M, y+12);
+  y += 40;
+  doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(120,120,120);
+  doc.text('ALL LOADS MUST BE VERIFIED BY RECEIVER · TRUCKS WILL NOT BE UNLOADED WITHOUT LOAD TICKET', M, y);
+  doc.setFont('helvetica','normal');
+  doc.text('Powered by AgCommand', PW - M, y, {align:'right'});
+
+  doc.save((ld.id||'load-ticket') + '.pdf');
+  flash(t('loadManifestReady'));
+}
+
 function generateLoadManifestPDF(loadId){
   const ld = LOADS[loadId]; if(!ld){ flash('Load not found', true); return; }
   if(typeof window.jspdf === 'undefined' || !window.jspdf || !window.jspdf.jsPDF){ alert('PDF engine not available'); return; }
@@ -22743,6 +23076,16 @@ async function boot(){
       // (clean vs. already-checked-in) state on first paint.
       _activeCheckin = await db.loadActiveCheckin(fid);
       showView('detail', fid);
+    }
+  }
+  // ─── Load-ticket (manifest) deep link ──────────────────────────────────
+  // Harvest work orders contain `.../?field=<id>&manifest=1#<id>`. Tapping it
+  // opens the quick load-ticket screen pre-filled from that block, so the crew
+  // boss can punch in bins + destination per truck through the day.
+  if(params.get('manifest') === '1'){
+    const fid = params.get('field') || (window.location.hash || '').replace('#','');
+    if(fid && FIELDS[fid]){
+      openQuickLoadTicket(fid);
     }
   }
 }
