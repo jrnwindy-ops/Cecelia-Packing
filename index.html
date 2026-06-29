@@ -6430,7 +6430,7 @@ const _seedFieldsSnapshot = JSON.parse(JSON.stringify(FIELDS));
 /* ── I18N ──────────────────────────────────────────────────────────────── */
 const I18N = {
   en:{sub:'Field Operations',fields:'Fields',acres:'Acres',active:'Active',comp:'Compliance',compOk:'Clear',
-      legend:'Status',grow:'Growing / clear',harv:'Harvest-ready',caut:'Attention',block:'REI / PHI',idle:'Idle / fallow',lgActive:'Crew on site',
+      legend:'Status',grow:'Growing / clear',harv:'Harvest-ready',caut:'Wet / attention',block:'REI / PHI',idle:'Idle / fallow',lgActive:'Crew on site',
       prov:'Provisional boundary — awaiting survey',openDetail:'Open field',logActivity:'Log activity',
       tileLoading:'Loading map…',tileWarn:'Satellite unavailable — showing street map',
       dCrop:'Crop',dVariety:'Variety',dAcres:'Acreage',dSplit:'Split',dPlanted:'Planted',dCounty:'County',dStatus:'Status',
@@ -7057,7 +7057,7 @@ const I18N = {
       attendeesLabel:'Who attended?',attendeesHint:'Pick from your direct employees. One sign-in sheet covers everyone selected.',
       navDocs:'Documents'},
   es:{sub:'Operaciones de Campo',fields:'Campos',acres:'Acres',active:'Activos',comp:'Cumplimiento',compOk:'Limpio',
-      legend:'Estado',grow:'Creciendo / limpio',harv:'Listo cosecha',caut:'Atención',block:'REI / PHI',idle:'Inactivo / barbecho',lgActive:'Cuadrilla en campo',
+      legend:'Estado',grow:'Creciendo / limpio',harv:'Listo cosecha',caut:'Mojado / atención',block:'REI / PHI',idle:'Inactivo / barbecho',lgActive:'Cuadrilla en campo',
       prov:'Límite provisional — esperando levantamiento',openDetail:'Abrir campo',logActivity:'Registrar actividad',
       tileLoading:'Cargando mapa…',tileWarn:'Satélite no disponible — mostrando mapa de calles',
       dCrop:'Cultivo',dVariety:'Variedad',dAcres:'Superficie',dSplit:'División',dPlanted:'Sembrado',dCounty:'Condado',dStatus:'Estado',
@@ -18502,11 +18502,15 @@ function commitLog(fieldId, overrideRecord){
       ready:    ready
     };
   }
-  // For irrigation, track when so we can advise on wet ground later. Skip
-  // when backfilled — a historical irrigation does NOT mean the ground is
-  // wet right now.
+  // For irrigation, track when so we can advise on wet ground later, and mark
+  // the field WET (yellow caution — scouting/inspection OK, no heavy equipment)
+  // for the dry-down window. Default 3 days = 2 days + the irrigation day, the
+  // same window the work-order assign path uses. Skip when backfilled — a
+  // historical irrigation does NOT mean the ground is wet right now.
   if(_logState.type === 'irrigate' && !isBackfilled){
     FIELDS[fieldId].lastIrrigationAt = entry.performedAt;
+    const WET_DAYS = 3;
+    FIELDS[fieldId].wetUntil = new Date(new Date(entry.performedAt).getTime() + WET_DAYS * 24 * 60 * 60 * 1000).toISOString();
   }
   // For harvest: link selected existing lots (stamping crew + harvest date)
   // and, when the block had none, create the auto-generated fallback lots.
