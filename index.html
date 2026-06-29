@@ -2109,6 +2109,7 @@ const db = {
       sent_via:tk.sentVia||null, sent_at:tk.sentAt||null, status:tk.status, notes:tk.notes||'',
       rei_hours:tk.reiHours??null, phi_days:tk.phiDays??null,
       supplement_product:tk.supplementProduct||null, supplement_rate:tk.supplementRate||null,
+      other_task:tk.otherTask||null,
       completed_at:tk.completedAt||null, cancelled_at:tk.cancelledAt||null,
       built_message:tk.builtMessage||'', override:tk.override||null
     }));
@@ -2388,6 +2389,7 @@ const db = {
           reiHours:tk.rei_hours,phiDays:tk.phi_days,
           supplementProduct:tk.supplement_product||undefined,
           supplementRate:tk.supplement_rate||undefined,
+          otherTask:tk.other_task||undefined,
           override:tk.override||undefined}); });
       (pastRes.data||[]).forEach(pp=>{ const f=FIELDS[pp.field_id]; if(!f) return;
         f.pastPlantings.push({id:pp.id,crop:pp.crop,variety:pp.variety,plantedDate:pp.planted_date,
@@ -9529,6 +9531,15 @@ function onLogChemicalChange(){
   if(phiEl && phi != null) phiEl.value = phi;
 }
 
+/* Reveal the free-text box when "Other — type in" is chosen in the Work Order
+   Other-task dropdown. */
+function onWoOtherChange(){
+  const sel = document.getElementById('wo-other-select');
+  const customEl = document.getElementById('wo-other-custom');
+  if(!sel || !customEl) return;
+  customEl.style.display = sel.value === '__custom__' ? 'block' : 'none';
+}
+
 /* Same auto-fill behavior for the Work Order modal's spray section. */
 function onWoChemicalChange(){
   const sel = document.getElementById('wo-chemical');
@@ -10930,6 +10941,7 @@ function renderDetail(id){
         const sched = tk.scheduledFor ? ` · ${relativeDateLabel(tk.scheduledFor)}` : '';
         const detailBits = [];
         if(tk.supplementProduct) detailBits.push(escapeHtml(tk.supplementProduct));
+        if(tk.otherTask) detailBits.push(escapeHtml(tk.otherTask));
         if(tk.reiHours) detailBits.push(`REI ${tk.reiHours}h`);
         if(tk.phiDays) detailBits.push(`PHI ${tk.phiDays}d`);
         if(tk.irrigType) detailBits.push(escapeHtml(tk.irrigType));
@@ -17906,6 +17918,19 @@ function openWorkOrderModal(fieldId){
       `</div>`+
     `</div>`+
 
+    /* "Other" task picker — shown when the 'other' task is selected. Dropdown of
+       Cecelia's common hand-labor tasks with a type-in fallback. Mirrors the
+       Log Activity Other picker. */
+    `<div class="form-row" id="wo-othertask" style="display:none">`+
+      `<div class="form-label">${t('otherTaskLabel')}</div>`+
+      `<select class="text-input" id="wo-other-select" onchange="onWoOtherChange()" style="width:100%">`+
+        `<option value="">${t('otherTaskSelect')}</option>`+
+        OTHER_TASKS.map(tk => `<option value="${tk.replace(/"/g,'&quot;')}">${tk}</option>`).join('')+
+        `<option value="__custom__">${t('otherTaskCustom')}</option>`+
+      `</select>`+
+      `<input type="text" class="text-input" id="wo-other-custom" placeholder="${t('otherTaskCustomPlaceholder')}" style="display:none;width:100%;margin-top:8px">`+
+    `</div>`+
+
     /* REI / PHI inputs + citrus chemical picker — shown only when 'spray' is in
        the selected tasks. Selecting a chemical auto-fills REI/PHI from the
        CHEMICALS table (matches the Log Activity flow and M&R). */
@@ -18004,6 +18029,8 @@ function openWorkOrderModal(fieldId){
     if(restRow) restRow.style.display = _woState.tasks.has('spray') ? '' : 'none';
     if(suppRow) suppRow.style.display = _woState.tasks.has('supplement') ? '' : 'none';
     if(irrigRow) irrigRow.style.display = _woState.tasks.has('irrigate') ? '' : 'none';
+    const woOtherRow = document.getElementById('wo-othertask');
+    if(woOtherRow) woOtherRow.style.display = _woState.tasks.has('other') ? '' : 'none';
   }
   document.querySelectorAll('#wo-tasks .task-row').forEach(r=>{
     r.onclick = ()=>{
@@ -18232,6 +18259,19 @@ function commitAssignedTask(fieldId, taskList, notes, pickedDate, overrideRecord
     db.saveField(fieldId);
   }
 
+  // ── OTHER task: capture which specific task was chosen (dropdown or type-in).
+  const isOther = _woState.tasks.has('other');
+  let otherTask = null;
+  if(isOther){
+    const sel = document.getElementById('wo-other-select');
+    otherTask = sel ? (sel.value || '').trim() : '';
+    if(otherTask === '__custom__'){
+      const cu = document.getElementById('wo-other-custom');
+      otherTask = cu ? (cu.value || '').trim() : '';
+    }
+    if(!otherTask) otherTask = null;
+  }
+
   const taskRecord = {
     id: taskId,
     tasks: taskList,
@@ -18250,6 +18290,7 @@ function commitAssignedTask(fieldId, taskList, notes, pickedDate, overrideRecord
     supplementRate:    supplementRate,
     irrigType: irrigType,       // null unless irrigate
     dryDays:   dryDays,         // null unless irrigate
+    otherTask: otherTask,       // null unless 'other' selected
     completedAt: null,
     cancelledAt: null,
     builtMessage: ''            // built fresh when sent later
@@ -18321,6 +18362,19 @@ function commitWorkOrder(fieldId, mode, overrideRecord){
     db.saveField(fieldId);
   }
 
+  // ── OTHER task capture (dropdown or type-in).
+  const isOther = _woState.tasks.has('other');
+  let otherTask = null;
+  if(isOther){
+    const sel = document.getElementById('wo-other-select');
+    otherTask = sel ? (sel.value || '').trim() : '';
+    if(otherTask === '__custom__'){
+      const cu = document.getElementById('wo-other-custom');
+      otherTask = cu ? (cu.value || '').trim() : '';
+    }
+    if(!otherTask) otherTask = null;
+  }
+
   const taskRecord = {
     id: taskId,
     tasks: taskList,
@@ -18339,6 +18393,7 @@ function commitWorkOrder(fieldId, mode, overrideRecord){
     supplementRate:    supplementRate,
     irrigType: irrigType,
     dryDays:   dryDays,
+    otherTask: otherTask,
     completedAt: null,
     cancelledAt: null,
     builtMessage: msg
@@ -18736,15 +18791,60 @@ function sendScheduledTaskNow(fieldId, taskId){
   renderDetail(fieldId);
 }
 
-/* "Mark complete" — closes out a scheduled or sent task. Records the completion
-   timestamp; the timeline meta-activity for "work order sent" is left alone
-   (that already happened). When we later build outcome capture, this is where
-   actual results from the task could attach. */
+/* "Mark complete" — closes out a scheduled or sent task AND auto-logs the
+   matching activity to the field timeline, carrying through the task's details
+   (chemical + REI/PHI for spray, product/rate for supplement, irrigation wet
+   window, or the specific "Other" task). This is the manager-side equivalent of
+   a crew checking out: completing the plan writes the record of what was done,
+   so there's no separate manual Log Activity step. Log Activity remains for
+   ad-hoc work that was never assigned. */
 function markTaskComplete(fieldId, taskId){
   const tk = findTask(fieldId, taskId); if(!tk) return;
+  const f = FIELDS[fieldId]; if(!f) return;
+  // Don't re-complete (and re-log) a task that's already closed out — e.g. one
+  // already completed through the crew checkout flow.
+  if(tk.status === 'completed' || tk.status === 'cancelled') return;
+  const nowIso = new Date().toISOString();
   tk.status = 'completed';
-  tk.completedAt = new Date().toISOString();
+  tk.completedAt = nowIso;
   db.updateTask(tk);   // ── PERSIST ──
+
+  // Auto-log one activity per unique task type on this work order.
+  f.activities = f.activities || [];
+  const seen = new Set();
+  (tk.tasks || []).forEach(label => {
+    const tyId = labelToActType(label);
+    if(seen.has(tyId)) return;
+    seen.add(tyId);
+    const act = {
+      id: 'a_' + Date.now() + '_' + tyId,
+      type: tyId,
+      coverage: tk.coverage || 'full',
+      performedBy: tk.assignedTo || t('attribGuy'),
+      performedAt: nowIso,
+      notes: tk.notes || '',
+      photos: [],
+      reiHours: (tyId === 'spray' && tk.reiHours) ? tk.reiHours : undefined,
+      phiDays:  (tyId === 'spray' && tk.phiDays)  ? tk.phiDays  : undefined,
+      supplementProduct: ((tyId === 'supplement' || tyId === 'spray') && tk.supplementProduct) ? tk.supplementProduct : undefined,
+      supplementRate:    (tyId === 'supplement' && tk.supplementRate) ? tk.supplementRate : undefined,
+      otherTask: (tyId === 'other' && tk.otherTask) ? tk.otherTask : undefined
+    };
+    f.activities.unshift(act);
+    if(DB_ENABLED) db.saveActivity(fieldId, act);
+    // Carry restrictions/wet state through to the field, same as checkout.
+    if(tyId === 'spray'){
+      if(act.reiHours) applyREI(fieldId, act.reiHours, nowIso);
+      if(act.phiDays)  applyPHI(fieldId, act.phiDays, nowIso);
+    }
+    if(tyId === 'irrigate'){
+      f.lastIrrigationAt = nowIso;
+      const wd = (tk.dryDays && tk.dryDays >= 1) ? tk.dryDays : 3;
+      f.wetUntil = new Date(new Date(nowIso).getTime() + wd * 24 * 60 * 60 * 1000).toISOString();
+      if(DB_ENABLED) db.saveField(fieldId);
+    }
+  });
+
   flash(t('schedFlashCompleted'));
   renderDetail(fieldId);
   renderFields();
@@ -19090,7 +19190,10 @@ function commitCheckout(fieldId){
           actNotes = `${suppPrefix} · ${actNotes}`;
         }
         // Pull through REI/PHI on the source task — applies to the field on
-        // commit (below) and stays attached to the activity for the audit trail
+        // commit (below) and stays attached to the activity for the audit trail.
+        // For spray, the chemical material lives on supplementProduct (that's
+        // how Log Activity stores it too) so it surfaces on the timeline.
+        // For "other", carry the specific task chosen at assign time.
         typedActivities.push({
           id: 'a_' + Date.now() + '_' + typedActivities.length,
           type: tyId,
@@ -19101,8 +19204,10 @@ function commitCheckout(fieldId){
           photos: [],
           reiHours: (tyId === 'spray' && tk.reiHours) ? tk.reiHours : undefined,
           phiDays:  (tyId === 'spray' && tk.phiDays)  ? tk.phiDays  : undefined,
-          supplementProduct: (tyId === 'supplement' && tk.supplementProduct) ? tk.supplementProduct : undefined,
-          supplementRate:    (tyId === 'supplement' && tk.supplementRate)    ? tk.supplementRate    : undefined
+          supplementProduct: ((tyId === 'supplement' || tyId === 'spray') && tk.supplementProduct) ? tk.supplementProduct : undefined,
+          supplementRate:    (tyId === 'supplement' && tk.supplementRate) ? tk.supplementRate : undefined,
+          otherTask: (tyId === 'other' && tk.otherTask) ? tk.otherTask : undefined,
+          _dryDays: (tyId === 'irrigate' && tk.dryDays) ? tk.dryDays : undefined
         });
       });
     });
@@ -19137,6 +19242,8 @@ function commitCheckout(fieldId){
   f.activities = f.activities || [];
   // Insert newest-first
   typedActivities.forEach(act => {
+    const dryDays = act._dryDays;   // temp carrier, not persisted on the activity
+    delete act._dryDays;
     f.activities.unshift(act);
     if(DB_ENABLED) db.saveActivity(fieldId, act);
     // Apply spray restrictions when a spray task is completed — REI/PHI on the
@@ -19147,10 +19254,13 @@ function commitCheckout(fieldId){
       if(act.reiHours) applyREI(fieldId, act.reiHours, act.performedAt);
       if(act.phiDays)  applyPHI(fieldId, act.phiDays, act.performedAt);
     }
-    // Irrigation completions update lastIrrigationAt so the wet-ground
-    // indicator on the map reflects reality
+    // Irrigation completions update lastIrrigationAt AND mark the field WET
+    // (yellow caution — scout/inspect OK, no heavy equipment) for the dry-down
+    // window carried from the task (default 3 days = 2 + irrigation day).
     if(act.type === 'irrigate'){
       f.lastIrrigationAt = checkoutIso;
+      const wd = (dryDays && dryDays >= 1) ? dryDays : 3;
+      f.wetUntil = new Date(new Date(checkoutIso).getTime() + wd * 24 * 60 * 60 * 1000).toISOString();
       if(DB_ENABLED) db.saveField(fieldId);
     }
   });
