@@ -10728,7 +10728,13 @@ function showView(name, fieldId){
     _checkinMode = false;
     _activeCheckin = null;
     if(_fieldsViewMode === 'list'){ renderFieldList(); }
-    else if(map){ setTimeout(()=>map.invalidateSize(), 50); }
+    else if(map){
+      // Repaint polygons so any status change made while in the detail view
+      // (check-in → teal, irrigation → yellow, spray → red) is reflected the
+      // moment we return to the map — no manual refresh needed.
+      renderFields();
+      setTimeout(()=>map.invalidateSize(), 50);
+    }
   }
 }
 document.getElementById('btn-back').onclick = ()=> showView('map');
@@ -18966,7 +18972,12 @@ async function handleCheckin(fieldId){
   if(DB_ENABLED) db.saveCheckin(record);
   flash(t('ciFlashIn'));
   renderDetail(fieldId);
-  renderFields();   // repaint polygons — this one flips to teal
+  renderFields();   // repaint main map polygons — this one flips to teal
+  // Also restyle the War Room map + feed immediately if it's open, so the wall
+  // reflects the check-in the instant it happens instead of waiting for the
+  // 20-second refresh tick.
+  if(typeof styleWarRoomFields === 'function' && _wrMap) styleWarRoomFields();
+  if(currentView === 'warroom' && typeof renderWarRoomData === 'function') renderWarRoomData();
 }
 
 /* Opens the checkout modal — shows pending tasks as checkboxes (all checked by
@@ -19324,6 +19335,10 @@ function commitCheckout(fieldId){
   renderDetail(fieldId);
   renderFields();
   renderSummary();
+  // Restyle the War Room map + feed immediately if it's open (polygon reverts
+  // from teal the instant the crew checks out, not on the next refresh tick).
+  if(typeof styleWarRoomFields === 'function' && _wrMap) styleWarRoomFields();
+  if(currentView === 'warroom' && typeof renderWarRoomData === 'function') renderWarRoomData();
 }
 
 /* ── COMPLIANCE GATE ENGINE ────────────────────────────────────────────── */
@@ -21202,9 +21217,63 @@ function styleWarRoomFields(){
 
 function fitWarRoomMap(){
   if(!_wrMap) return;
-  const pts = [];
-  Object.values(FIELDS).forEach(f=>{ if(f.polygon) f.polygon.forEach(p=>pts.push(p)); });
-  if(pts.length) _wrMap.fitBounds(pts, {padding:[40,40]});
+
+  // Helper: collect valid centroid [lat,lng] for a field (≥3 polygon points).
+  const centroidOf = (f) => {
+    if(f.centroid && f.centroid.length === 2) return f.centroid;
+    if(f.polygon && f.polygon.length >= 3){
+      const n=f.polygon.length;
+      return [f.polygon.reduce((s,p)=>s+p[0],0)/n, f.polygon.reduce((s,p)=>s+p[1],0)/n];
+    }
+    return null;
+  };
+  const polyPts = (f) => (f.polygon && f.polygon.length >= 3) ? f.polygon : null;
+
+  // 1) PRIORITY: frame where crews are RIGHT NOW (active check-ins). A live-ops
+  //    board should zoom to the action, not show empty ranches 60km away.
+  let pts = [];
+  for(const [fid] of _activeCheckins){
+    const f = FIELDS[fid]; if(!f) continue;
+    const pp = polyPts(f); if(pp) pp.forEach(p=>pts.push(p));
+  }
+
+  // 2) Else: today's activity locations.
+  if(pts.length === 0){
+    const {start} = todayBounds();
+    Object.values(FIELDS).forEach(f=>{
+      const recent = (f.activities||[]).some(a=> new Date(a.performedAt||a.createdAt||0).getTime() >= start);
+      if(recent){ const pp = polyPts(f); if(pp) pp.forEach(p=>pts.push(p)); }
+    });
+  }
+
+  // 3) Else: the DENSE core cluster (Orange Cove). We compute the median block
+  //    location and include only blocks within ~12km of it, so distant outliers
+  //    (R13 south, R1/R10 east) don't force a whole-valley zoom-out.
+  if(pts.length === 0){
+    const cents = Object.values(FIELDS).map(centroidOf).filter(Boolean);
+    if(cents.length){
+      const lats = cents.map(c=>c[0]).sort((a,b)=>a-b);
+      const lngs = cents.map(c=>c[1]).sort((a,b)=>a-b);
+      const medLat = lats[Math.floor(lats.length/2)];
+      const medLng = lngs[Math.floor(lngs.length/2)];
+      const NEAR_DEG = 0.11; // ~12 km
+      Object.values(FIELDS).forEach(f=>{
+        const c = centroidOf(f); if(!c) return;
+        if(Math.abs(c[0]-medLat) <= NEAR_DEG && Math.abs(c[1]-medLng) <= NEAR_DEG){
+          const pp = polyPts(f); if(pp) pp.forEach(p=>pts.push(p));
+        }
+      });
+    }
+  }
+
+  // 4) Last resort: every block with geometry.
+  if(pts.length === 0){
+    Object.values(FIELDS).forEach(f=>{ const pp=polyPts(f); if(pp) pp.forEach(p=>pts.push(p)); });
+  }
+
+  if(pts.length){
+    _wrMap.fitBounds(pts, {padding:[50,50], maxZoom:16});
+  }
 }
 
 /* ── WEATHER (Open-Meteo, no key) ────────────────────────────────────── */
