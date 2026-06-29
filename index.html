@@ -2006,7 +2006,7 @@ const dbQueue = {
         }
         job.status='failed'; job.error=err;
         console.error('DB write failed:', job.label, err);
-        dbStatus.showError(job.id, job.label);
+        dbStatus.showError(job.id, job.label, (err && (err.message || err.code)) ? (err.message || err.code) : '');
         this.flushing = false;
         return;
       }
@@ -2018,8 +2018,10 @@ const dbQueue = {
 
 const dbStatus = {
   failedJobs: new Set(),
-  showError(jobId){
+  lastDetail: '',
+  showError(jobId, label, detail){
     this.failedJobs.add(jobId);
+    if(label) this.lastDetail = label + (detail ? ' — ' + detail : '');
     let bar = document.getElementById('db-sync-bar');
     if(!bar){
       bar = document.createElement('div');
@@ -2027,14 +2029,17 @@ const dbStatus = {
       bar.onclick = ()=> dbQueue.retry();
       document.body.appendChild(bar);
     }
-    bar.textContent = (typeof lang!=='undefined' && lang==='es')
+    const base = (typeof lang!=='undefined' && lang==='es')
       ? '⚠ No se pudo guardar — toca para reintentar'
       : '⚠ Couldn\u2019t save — tap to retry';
+    // Show the failing write's label so issues are diagnosable at a glance.
+    bar.textContent = this.lastDetail ? base + '  (' + this.lastDetail + ')' : base;
     bar.style.display='block';
   },
   clearError(jobId){
     this.failedJobs.delete(jobId);
     if(this.failedJobs.size===0){
+      this.lastDetail = '';
       const bar=document.getElementById('db-sync-bar');
       if(bar) bar.style.display='none';
     }
@@ -2159,18 +2164,28 @@ const db = {
      inactive on checkout. Active check-ins drive the "crew on field" indicator
      on the manager's map and the polygon's teal "active work" state. */
   saveCheckin(c){
-    return dbQueue.enqueue('saveCheckin '+c.id, ()=> sb.from('check_ins').insert({
+    const row = {
       id:c.id, task_id:c.taskId||null, field_id:c.fieldId, worker_name:c.workerName||null,
       checked_in_at:c.checkedInAt, checked_out_at:null, is_active:true, notes:'',
       crew_boss:c.crewBoss||null, job:c.job||null,
       crew_requested:(c.crewRequested??null), crew_actual:(c.crewActual??null)
-    }));
+    };
+    // Fallback omits columns added in a later migration (crew_boss/job/crew_*)
+    // so check-in still records on an older check_ins table.
+    const { crew_boss, job, crew_requested, crew_actual, ...rowCore } = row;
+    return dbQueue.enqueue('saveCheckin '+c.id,
+      ()=> sb.from('check_ins').insert(row),
+      ()=> sb.from('check_ins').insert(rowCore));
   },
   updateCheckin(c){
-    return dbQueue.enqueue('updateCheckin '+c.id, ()=> sb.from('check_ins').update({
+    const patch = {
       checked_out_at:c.checkedOutAt||null, is_active:c.isActive===true, notes:c.notes||'',
       crew_actual:(c.crewActual??null)
-    }).eq('id', c.id));
+    };
+    const { crew_actual, ...patchCore } = patch;
+    return dbQueue.enqueue('updateCheckin '+c.id,
+      ()=> sb.from('check_ins').update(patch).eq('id', c.id),
+      ()=> sb.from('check_ins').update(patchCore).eq('id', c.id));
   },
   async loadActiveCheckin(fieldId){
     if(!DB_ENABLED) return null;
@@ -6964,6 +6979,7 @@ const I18N = {
       wrFeedShipped:'Load shipped',
       wrFeedCheckedIn:'checked in',
       wrFeedCheckedOut:'checked out',
+      wrFeedInProgress:'In progress',wrFeedDone:'Done',wrFeedOnSite:'On site',wrFeedVisit:'Field visit',
       wrOnFieldNow:'ON THE FIELD NOW',
       wrNobodyOnField:'No crews on the field right now.',
       brTitle:"Today's briefing",
@@ -6992,7 +7008,7 @@ const I18N = {
       wrLegCrew:'Crew on site',
       wrLegHarvest:'Harvest-ready',
       wrLegRestricted:'Restricted',
-      wrTickWorkers:'workers on site',
+      wrTickWorkers:'workers on site',wrTickDoing:'Working',
       wrTickNow:'Now',
       wrTickClearing:'Clearing today',
       wrTickRestricted:'blocks restricted',
@@ -7575,6 +7591,7 @@ const I18N = {
       wrFeedShipped:'Carga enviada',
       wrFeedCheckedIn:'registró entrada',
       wrFeedCheckedOut:'registró salida',
+      wrFeedInProgress:'En progreso',wrFeedDone:'Terminado',wrFeedOnSite:'En el sitio',wrFeedVisit:'Visita al campo',
       wrOnFieldNow:'EN EL CAMPO AHORA',
       wrNobodyOnField:'No hay cuadrillas en el campo ahora.',
       brTitle:'Resumen de hoy',
@@ -7603,7 +7620,7 @@ const I18N = {
       wrLegCrew:'Cuadrilla en campo',
       wrLegHarvest:'Listo cosecha',
       wrLegRestricted:'Restringido',
-      wrTickWorkers:'trabajadores en campo',
+      wrTickWorkers:'trabajadores en campo',wrTickDoing:'Trabajando',
       wrTickNow:'Ahora',
       wrTickClearing:'Libera hoy',
       wrTickRestricted:'bloques restringidos',
@@ -20956,34 +20973,57 @@ function warRoomFeed(){
       sub:`${pallets.length} ${t('palletPalletsShort')} · ${warRoomAgo(ts)}`});
   });
   // Active check-ins — crews on the field RIGHT NOW (in-progress, live).
-  // These show the moment a crew arrives, not when they finish.
+  // These show the moment a crew arrives, not when they finish. Lead with the
+  // WORK being done (the job), so the War Room reads "what's happening" not just
+  // "who's here". Fall back to the field's open assigned tasks if the check-in
+  // itself didn't capture a specific job, then to a generic "on site".
   for(const [fid, ci] of _activeCheckins){
     const f = FIELDS[fid]; if(!f) continue;
     const ts = new Date(ci.checkedInAt||0).getTime();
     const boss = ci.crewBoss || ci.workerName || t('ciAnonymous');
-    const job = ci.job ? ` · ${escapeHtml(ci.job)}` : '';
+    // Resolve what they're doing: the check-in's job, else the open tasks on
+    // this block, else a generic label.
+    let jobText = (ci.job || '').trim();
+    if(!jobText){
+      const openTasks = (f.assignedTasks||[])
+        .filter(tk => tk.status==='sent' || tk.status==='scheduled' || tk.status==='overdue')
+        .flatMap(tk => {
+          const labels = (tk.tasks||[]).slice();
+          if(tk.otherTask) labels.push(tk.otherTask);
+          return labels;
+        });
+      jobText = openTasks.length ? [...new Set(openTasks)].join(', ') : t('wrFeedOnSite');
+    }
     let crew = '';
     if(ci.crewActual!=null){
-      crew = ci.crewRequested!=null ? ` · ${ci.crewActual}/${ci.crewRequested} ${t('ciCrew')}` : ` · ${ci.crewActual} ${t('ciCrew')}`;
+      crew = ci.crewRequested!=null ? `${ci.crewActual}/${ci.crewRequested} ${t('ciCrew')}` : `${ci.crewActual} ${t('ciCrew')}`;
     }
+    // main = the work + the block; sub = who + crew + how long ago
+    const subBits = [escapeHtml(boss)];
+    if(crew) subBits.push(crew);
+    subBits.push(warRoomAgo(ts));
     out.push({ts, ico:'👷', live:true,
-      main:`${escapeHtml(boss)} · ${f.displayId||''}`,
-      sub:`${t('wrFeedCheckedIn')}${job}${crew} · ${warRoomAgo(ts)}`});
+      main:`${escapeHtml(jobText)} · ${f.displayId||''}`,
+      sub:`${t('wrFeedInProgress')} · ${subBits.join(' · ')}`});
   }
-  // Check-outs today — departures, so the grower sees who left and when.
+  // Check-outs today — departures, so the grower sees what was done and when.
   (_wrCompletedCheckins||[]).forEach(ci=>{
     const f = FIELDS[ci.fieldId]; if(!f) return;
     const ts = new Date(ci.checkedOutAt||0).getTime();
     if(ts < start) return;
     const boss = ci.crewBoss || ci.workerName || t('ciAnonymous');
-    const job = ci.job ? ` · ${escapeHtml(ci.job)}` : '';
-    const crew = (ci.crewActual!=null) ? ` · ${ci.crewActual} ${t('ciCrew')}` : '';
+    const jobText = (ci.job || '').trim() || t('wrFeedVisit');
+    const crew = (ci.crewActual!=null) ? `${ci.crewActual} ${t('ciCrew')}` : '';
     const inMs = new Date(ci.checkedInAt||0).getTime();
     const mins = (inMs && ts>inMs) ? Math.round((ts-inMs)/60000) : 0;
-    const dur = mins>=60 ? ` · ${Math.floor(mins/60)}h ${mins%60}m` : (mins>0?` · ${mins}m`:'');
+    const dur = mins>=60 ? `${Math.floor(mins/60)}h ${mins%60}m` : (mins>0?`${mins}m`:'');
+    const subBits = [t('wrFeedDone'), escapeHtml(boss)];
+    if(crew) subBits.push(crew);
+    if(dur) subBits.push(dur);
+    subBits.push(warRoomAgo(ts));
     out.push({ts, ico:'✅',
-      main:`${escapeHtml(boss)} · ${f.displayId||''}`,
-      sub:`${t('wrFeedCheckedOut')}${job}${crew}${dur} · ${warRoomAgo(ts)}`});
+      main:`${escapeHtml(jobText)} · ${f.displayId||''}`,
+      sub:subBits.join(' · ')});
   });
   out.sort((a,b)=> b.ts - a.ts);
   return out.slice(0, 40);
@@ -21199,6 +21239,21 @@ function renderWarRoomTicker(){
   // Workers on site
   let crewsOn = 0; for(const [fid] of _activeCheckins){ if(FIELDS[fid]) crewsOn++; }
   items.push(`<b>${crewsOn}</b> ${t('wrTickWorkers')}`);
+
+  // What those crews are doing right now — "R7-A: Spraying · R8-3: Irrigating"
+  const activeJobs = [];
+  for(const [fid, ci] of _activeCheckins){
+    const f = FIELDS[fid]; if(!f) continue;
+    let jobText = (ci.job || '').trim();
+    if(!jobText){
+      const openTasks = (f.assignedTasks||[])
+        .filter(tk => tk.status==='sent' || tk.status==='scheduled' || tk.status==='overdue')
+        .flatMap(tk => { const l=(tk.tasks||[]).slice(); if(tk.otherTask) l.push(tk.otherTask); return l; });
+      jobText = openTasks.length ? [...new Set(openTasks)].join(', ') : '';
+    }
+    if(jobText) activeJobs.push(`${f.displayId}: ${jobText}`);
+  }
+  if(activeJobs.length) items.push(`${t('wrTickDoing')}: ${activeJobs.map(escapeHtml).join(' · ')}`);
 
   // Weather: current + 3-day
   if(_wrWeather && _wrWeather.current){
